@@ -6,11 +6,23 @@ import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
 import { VRButton } from 'three/addons/webxr/VRButton.js';
 import { Sky } from 'three/addons/objects/Sky.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
+import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { sites, upcoming } from './content.js';
 
 const params = new URLSearchParams(location.search);
 const site = sites.find((x) => x.id === params.get('site')) || null;   // null = museum hall
-const mood = params.get('mood') === 'golden' ? 'golden' : 'day';      // ?mood=golden: low evening sun
+const mood = params.get('mood') === 'golden' ? 'golden' : 'day';      // ?mood=golden: low evening sun (day style)
+// ?style=: day | holo (hologram) | scan (stone below, digital above) | neon
+const STYLES = { day: 0, holo: 1, scan: 2, neon: 3 };
+const style = params.get('style') in STYLES ? params.get('style') : 'scan';
+const cyber = style !== 'day';
+const CYAN = new THREE.Color(0x3fe0ff), MAGENTA = new THREE.Color(0xff2bd6), AMBER = new THREE.Color(0xffc861);
+const ACCENT = style === 'neon' ? MAGENTA : style === 'scan' ? AMBER : CYAN;
+const uTime = { value: 0 };   // shared by every animated shader
+let composer = null;          // bloom (desktop only; WebXR renders without it)
 
 const GOLD = 0xd9b26a;
 const NAVY = 0x0d1530;
@@ -53,13 +65,15 @@ if (site) buildSite(site); else buildHall();
 // Site view: one stop at full scale, in daylight
 // =====================================================================
 async function buildSite(s) {
-  setupDaylight(s);
+  if (cyber) setupCyber(s); else setupDaylight(s);
   vrStart = s.vrStart;
 
   const object = await loadScan(s);
   scene.add(object);
   floorY = s.floor ? 0 : estimateGround(object);
-  applyFade(object, s.fade, s.ground);
+  const top = new THREE.Box3().setFromObject(object).max.y;
+  applyFade(object, s.fade, cyber ? 0x000000 : s.ground, undefined, { style, baseY: floorY, height: top - floorY });
+  if (style === 'holo') scene.add(makePointCloud(object, CYAN, 0.03));
   floor.position.y = floorY - (s.floor ? 0.02 : 0.25);
 
   if (s.camera) {
@@ -134,6 +148,78 @@ function makeHills(radius, groundColor, horizon) {
   geo.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
   geo.setIndex(idx);
   return new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.DoubleSide, toneMapped: false, fog: false }));
+}
+
+// Dark digital world: glowing horizon, neon grid floor, drifting particles, bloom.
+function setupCyber(s) {
+  const glow = style === 'neon' ? new THREE.Color(0xff2bd6) : style === 'scan' ? new THREE.Color(0xd98a2b) : new THREE.Color(0x1aa6d9);
+  scene.add(new THREE.Mesh(new THREE.SphereGeometry(3000, 48, 24), new THREE.ShaderMaterial({
+    side: THREE.BackSide, depthWrite: false, fog: false, toneMapped: false,
+    uniforms: { uGlow: { value: glow } },
+    vertexShader: 'varying vec3 vP; void main(){ vP = normalize(position); gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
+    fragmentShader: `uniform vec3 uGlow; varying vec3 vP;
+      void main(){
+        float h = vP.y;
+        vec3 c = mix(vec3(0.012, 0.016, 0.045), vec3(0.0, 0.0, 0.01), clamp(h * 1.6, 0.0, 1.0));
+        c += uGlow * exp(-abs(h) * 14.0) * 0.55;
+        gl_FragColor = vec4(c, 1.0); }`,
+  })));
+  scene.fog = new THREE.FogExp2(0x02030a, 0.9 / (s.fade.radius * 6));
+
+  const gridColor = style === 'neon' ? new THREE.Color(0xff2bd6) : CYAN;
+  floor = new THREE.Mesh(new THREE.PlaneGeometry(6000, 6000).rotateX(-Math.PI / 2), new THREE.ShaderMaterial({
+    toneMapped: false, fog: false,
+    uniforms: { uColor: { value: gridColor }, uCell: { value: Math.max(2, s.fade.radius / 8) }, uTime },
+    vertexShader: 'varying vec3 vW; void main(){ vec4 w = modelMatrix * vec4(position, 1.0); vW = w.xyz; gl_Position = projectionMatrix * viewMatrix * w; }',
+    fragmentShader: `uniform vec3 uColor; uniform float uCell; uniform float uTime; varying vec3 vW;
+      float line(float v, float w){ float f = abs(fract(v - 0.5) - 0.5) / fwidth(v); return 1.0 - min(f / w, 1.0); }
+      void main(){
+        vec2 p = vW.xz / uCell;
+        float g = max(line(p.x, 1.0), line(p.y, 1.0)) * 0.55 + max(line(p.x / 5.0, 1.4), line(p.y / 5.0, 1.4)) * 0.6;
+        float dist = length(vW.xz);
+        float fade = exp(-dist / (uCell * 40.0));
+        float pulse = 0.5 + 0.5 * sin(dist / uCell * 0.6 - uTime * 1.5);
+        vec3 c = vec3(0.004, 0.006, 0.02) + uColor * g * fade * (0.55 + 0.45 * pulse);
+        gl_FragColor = vec4(c, 1.0); }`,
+  }));
+  scene.add(floor);
+  scene.add(makeDust(s.fade.radius * 1.6, ACCENT));
+
+  composer = new EffectComposer(renderer);
+  composer.addPass(new RenderPass(scene, camera));
+  composer.addPass(new UnrealBloomPass(new THREE.Vector2(window.innerWidth, window.innerHeight), 0.85, 0.55, 0.62));
+  composer.addPass(new OutputPass());
+  renderer.toneMappingExposure = 1.0;
+  document.body.classList.add('cyber');
+}
+
+// Slowly rising glowing specks around the site.
+function makeDust(radius, color) {
+  const n = 1400, pos = new Float32Array(n * 3);
+  for (let i = 0; i < n; i++) {
+    const a = Math.random() * Math.PI * 2, r = Math.sqrt(Math.random()) * radius;
+    pos.set([Math.cos(a) * r, Math.random() * radius * 0.5, Math.sin(a) * r], i * 3);
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  const pts = new THREE.Points(geo, new THREE.PointsMaterial({ color, size: radius / 260, transparent: true, opacity: 0.7,
+    blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false }));
+  pts.userData.rise = radius * 0.5;
+  return pts;
+}
+
+// Vertices of the scan as glowing points (hologram style).
+function makePointCloud(object, color, size) {
+  const group = new THREE.Group();
+  object.updateMatrixWorld(true);
+  object.traverse((o) => {
+    if (!o.isMesh) return;
+    const pts = new THREE.Points(o.geometry, new THREE.PointsMaterial({ color, size, transparent: true, opacity: 0.16,
+      blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false }));
+    pts.applyMatrix4(o.matrixWorld);
+    group.add(pts);
+  });
+  return group;
 }
 
 // =====================================================================
@@ -308,13 +394,19 @@ function fitModel(object, fit) {
 
 // Fade the scan into `color` towards the edge of a circle and cut it off there.
 // siteMatrix maps world space back to the site's own metres (identity at full scale).
-function applyFade(object, fade, color, siteMatrix = new THREE.Matrix4()) {
+// look.style also restyles the photo colours (hologram / scan / neon); see STYLES.
+function applyFade(object, fade, color, siteMatrix = new THREE.Matrix4(), look = { style: 'day', baseY: 0, height: 10 }) {
   const uniforms = {
     uFadeCenter: { value: new THREE.Vector2(...fade.center) },
     uFadeRadius: { value: fade.radius },
     uFadeWidth: { value: fade.width },
     uFadeColor: { value: new THREE.Color(color) },
     uSiteMatrix: { value: siteMatrix },
+    uStyle: { value: STYLES[look.style] },
+    uBaseY: { value: look.baseY },
+    uHeight: { value: Math.max(look.height, 1) },
+    uCyan: { value: CYAN }, uMagenta: { value: MAGENTA }, uAmber: { value: AMBER },
+    uTime,
   };
   object.traverse((o) => {
     if (!o.isMesh) return;
@@ -324,14 +416,35 @@ function applyFade(object, fade, color, siteMatrix = new THREE.Matrix4()) {
         sh.vertexShader = 'uniform mat4 uSiteMatrix;\nvarying vec3 vSitePos;\n' + sh.vertexShader.replace(
           '#include <project_vertex>',
           '#include <project_vertex>\n  vSitePos = (uSiteMatrix * modelMatrix * vec4(transformed, 1.0)).xyz;');
-        sh.fragmentShader = 'uniform vec2 uFadeCenter;\nuniform float uFadeRadius;\nuniform float uFadeWidth;\nuniform vec3 uFadeColor;\nvarying vec3 vSitePos;\n' + sh.fragmentShader.replace(
+        sh.fragmentShader = `uniform vec2 uFadeCenter; uniform float uFadeRadius; uniform float uFadeWidth; uniform vec3 uFadeColor;
+uniform int uStyle; uniform float uBaseY; uniform float uHeight; uniform float uTime;
+uniform vec3 uCyan; uniform vec3 uMagenta; uniform vec3 uAmber;
+varying vec3 vSitePos;
+` + sh.fragmentShader.replace(
           '#include <opaque_fragment>',
           `#include <opaque_fragment>
   { float d = distance(vSitePos.xz, uFadeCenter);
     if (d > uFadeRadius) discard;
-    gl_FragColor.rgb = mix(gl_FragColor.rgb, uFadeColor, smoothstep(uFadeRadius - uFadeWidth, uFadeRadius, d)); }`);
+    float edge = smoothstep(uFadeRadius - uFadeWidth, uFadeRadius, d);
+    vec3 c = gl_FragColor.rgb;
+    float lum = dot(c, vec3(0.2126, 0.7152, 0.0722));
+    float y = vSitePos.y - uBaseY;
+    float lines = smoothstep(0.82, 1.0, fract(y * 2.2 - uTime * 0.5));
+    if (uStyle == 1) {            // hologram
+      float sweep = exp(-pow((y - mod(uTime * uHeight * 0.18, uHeight * 1.4) + uHeight * 0.2) * 1.4, 2.0));
+      c = uCyan * (0.03 + 0.75 * lum) + uCyan * lines * 0.25 + vec3(0.6, 0.95, 1.0) * sweep * 0.6;
+    } else if (uStyle == 2) {     // real stone below the scan line, digital above
+      float level = uHeight * (0.5 + 0.38 * sin(uTime * 0.32));
+      float band = exp(-pow((y - level) * 5.0, 2.0));
+      vec3 holo = uCyan * (0.06 + 1.25 * lum) + uCyan * lines * 0.3;
+      c = mix(c, holo, smoothstep(level - 0.15, level + 0.15, y)) + uAmber * band * 0.9;
+    } else if (uStyle == 3) {     // neon: height gradient magenta → cyan
+      vec3 grad = mix(uMagenta, uCyan, clamp(y / uHeight, 0.0, 1.0));
+      c = mix(c * 0.45, grad * (0.15 + 1.5 * lum), 0.7) + grad * lines * 0.18;
+    }
+    gl_FragColor.rgb = mix(c, uFadeColor, edge); }`);
       };
-      m.customProgramCacheKey = () => 'fade';
+      m.customProgramCacheKey = () => 'fade-look';
       m.needsUpdate = true;
     }
   });
@@ -366,9 +479,10 @@ function frameObject(object) {
 // Info points and text
 // =====================================================================
 function makeHotspot(data) {
-  const mesh = new THREE.Mesh(new THREE.SphereGeometry(0.28, 24, 16), new THREE.MeshBasicMaterial({ color: 0xf2c96b, toneMapped: false }));
-  const halo = new THREE.Mesh(new THREE.SphereGeometry(0.5, 24, 16),
-    new THREE.MeshBasicMaterial({ color: 0xf2c96b, transparent: true, opacity: 0.3, depthWrite: false, toneMapped: false }));
+  const col = cyber ? ACCENT.clone().multiplyScalar(1.6) : new THREE.Color(0xf2c96b);
+  const mesh = new THREE.Mesh(new THREE.SphereGeometry(0.28, 24, 16), new THREE.MeshBasicMaterial({ color: col, toneMapped: false }));
+  const halo = new THREE.Mesh(cyber ? new THREE.TorusGeometry(0.55, 0.035, 8, 48) : new THREE.SphereGeometry(0.5, 24, 16),
+    new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: cyber ? 0.9 : 0.3, depthWrite: false, toneMapped: false }));
   mesh.add(halo);
   mesh.position.set(...data.position);
   mesh.userData = { ...data, halo };
@@ -522,7 +636,7 @@ function setupUi() {
     : 'Drag to look around · click an exhibit to step inside';
   document.getElementById('sites').innerHTML =
     `<a href="./" class="${site ? '' : 'active'}"><b>Museum</b> Hall</a>` +
-    sites.map((x) => `<a href="?site=${x.id}" class="${x.id === site?.id ? 'active' : ''}"><b>${x.city}</b> ${x.place}</a>`).join('') +
+    sites.map((x) => `<a href="?site=${x.id}&style=${style}" class="${x.id === site?.id ? 'active' : ''}"><b>${x.city}</b> ${x.place}</a>`).join('') +
     upcoming.map((x) => `<span class="soon"><b>${x.city}</b> December</span>`).join('');
   document.getElementById('credits-body').innerHTML = sites.map(({ city, place, credit: c }) =>
     `<p><b>${city} · ${place}:</b> <a href="${c.url}" target="_blank" rel="noopener">${c.work}</a> by ${c.author}, ${c.license}. Simplified and compressed for web and VR.</p>`
@@ -539,8 +653,13 @@ function doneLoading() { document.getElementById('loading').classList.add('done'
 const clock = new THREE.Clock();
 renderer.setAnimationLoop(() => {
   const t = clock.getElapsedTime();
+  uTime.value = t;
   for (const h of hotspotMeshes) h.userData.halo.scale.setScalar(1 + 0.25 * Math.sin(t * 2.5));
-  scene.traverse((o) => { if (o.userData.spin) o.rotation.y = t * 0.15; });
+  scene.traverse((o) => {
+    if (o.userData.spin) o.rotation.y = t * 0.15;
+    if (o.userData.rise) o.position.y = (t * 0.4) % (o.userData.rise * 0.2);
+    if (cyber && o.userData.halo) o.userData.halo.lookAt(camera.getWorldPosition(new THREE.Vector3()));
+  });
 
   if (renderer.xr.isPresenting) {
     teleportMarker.visible = false;
@@ -557,13 +676,14 @@ renderer.setAnimationLoop(() => {
       camera.position.z = THREE.MathUtils.clamp(camera.position.z, -14.4, 14.4);
     }
   }
-  renderer.render(scene, camera);
+  if (composer && !renderer.xr.isPresenting) composer.render(); else renderer.render(scene, camera);
 });
 
 window.addEventListener('resize', () => {
   camera.aspect = window.innerWidth / window.innerHeight;
   camera.updateProjectionMatrix();
   renderer.setSize(window.innerWidth, window.innerHeight);
+  composer?.setSize(window.innerWidth, window.innerHeight);
 });
 
 // =====================================================================

@@ -48,3 +48,10 @@ body::before { content: ""; position: fixed; inset: 0 0 auto 0; height: 120px; z
 
 .sites .soon { padding: 7px 12px; border: 1px dashed rgba(217,178,106,.35); border-radius: 999px; color: var(--muted); font-size: 13px; background: rgba(11,20,48,.4); }
 .sites .soon b { color: var(--ink); font-weight: 600; margin-right: 2px; }
+
+/* Cyber styles */
+body.cyber::before { background: linear-gradient(180deg, rgba(0,0,0,.6), transparent); }
+body.cyber .sites a, body.cyber .sites .soon { background: rgba(2,4,12,.6); border-color: rgba(63,224,255,.35); }
+body.cyber .sites a.active { border-color: #3fe0ff; color: #3fe0ff; box-shadow: 0 0 12px rgba(63,224,255,.35); }
+body.cyber .panel { background: rgba(2,4,14,.82); border-color: rgba(63,224,255,.55); box-shadow: 0 0 24px rgba(63,224,255,.18); }
+body.cyber .panel h2 { color: #7feaff; }
