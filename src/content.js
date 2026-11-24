@@ -1,12 +1,16 @@
 // Scene content: one entry per stop of the virtual museum. Edit this file to add stops.
-// The page shows one stop at a time; ?site=<id> in the URL picks it.
+// Without ?site= the page opens the museum hall (every stop as a model on a plinth);
+// ?site=<id> steps into one stop at full scale.
 //
 // fit:       { height: m } scales the model to that height (single monuments),
 //            { size: m }   scales its longest horizontal side (drone scans of whole areas).
 // transform: extra offset after fitting (metres) and rotation (radians).
 // camera:    desktop start view; null frames the whole model. vrStart: where you stand in VR (x, z).
 // hotspotSize: marker scale (default 1).
-// floor:     true = show the plain ground disc; false = the scan has its own terrain.
+// floor:     true = the model stands on y = 0; false = the scan has its own terrain.
+// fade:      circle (site metres) outside which the scan fades into the ground; hides ragged scan edges.
+// ground:    ground colour around the scan (match the scan's own ground).
+// hall:      plinth position [x, z] in the museum hall.
 // hotspots:  positions in metres after fitting and transform.
 
 export const sites = [
@@ -20,6 +24,9 @@ export const sites = [
     camera: { position: [0, 5, 30], target: [0, 7, 0] },
     vrStart: [0, 16],
     floor: true,
+    fade: { center: [0, 2], radius: 21, width: 6 },
+    ground: 0xb3a385,
+    hall: [-4, 7],
     credit: {
       work: 'Library of Celsus – Crowdsourced photogrammetry',
       author: 'Miguel Bandera',
@@ -63,6 +70,9 @@ export const sites = [
     transform: { rotationY: 0, position: [0, 0, 0] },
     camera: null,
     vrStart: [8, 15],          // in the exercise yard
+    fade: { center: [0, 0], radius: 54, width: 10 },
+    ground: 0x7d8452,
+    hall: [4, 7],
     hotspotSize: 4,            // bigger markers for a large area
     floor: false,
     credit: {
@@ -73,7 +83,7 @@ export const sites = [
     },
     hotspots: [
       {
-        position: [-38, 14, 30],
+        position: [-22, 12, 22],
         title: 'Sardis, Capital of Lydia',
         body: 'Sardis was the capital of the Lydian kingdom, home of the legendary rich King Croesus. The Lydians are credited with minting the first coins, and the Persian Royal Road ended here. The Archaeological Exploration of Sardis has been excavating the city since 1958.',
       },
@@ -101,8 +111,11 @@ export const sites = [
     model: 'models/gymnasium.glb',
     fit: { size: 45 },
     transform: { rotationY: Math.PI, position: [0, 0, 0] },   // face the court façade
-    camera: { position: [-1, 21, 19], target: [-1, 4, -8] },   // camera y is added to the ground height
+    camera: { position: [-1, 4.5, 6], target: [-1, 6, -8] },   // camera y is added to the ground height
     vrStart: [-1, 2],          // inside the court, facing the screen
+    fade: { center: [-1, 0], radius: 21, width: 5 },
+    ground: 0x7d8452,
+    hall: [4, -6],
     floor: false,
     credit: {
       work: 'GYMNASIUM',
@@ -122,5 +135,16 @@ export const sites = [
         body: 'Beyond these massive brick-and-stone walls lay the heated halls of the Roman baths. A visit combined exercise, bathing and conversation, which made the gymnasium a centre of city life.',
       },
     ],
+  },
+];
+
+// Stops that are not scanned yet; shown in the hall as empty plinths.
+export const upcoming = [
+  {
+    id: 'aigai',
+    city: 'Aigai',
+    place: 'Market Building',
+    note: 'To be scanned by MetaOdyssey participants on site in December 2026.',
+    hall: [-4, -6],
   },
 ];
