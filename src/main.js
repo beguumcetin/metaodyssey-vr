@@ -318,9 +318,9 @@ function buildPlaceholderFacade() {
   upper.forEach((x) => column(x, 9.1, 2.2, 5.2, 0.33));
   [[-6.7, -5.3], [-0.7, 0.7], [5.3, 6.7]].forEach(([a, b]) => box(b - a + 1.1, 0.9, 1.1, (a + b) / 2, 15.0, 2.0));
   [-6, 0, 6].forEach((x) => {
-    const p = new THREE.Mesh(new THREE.ConeGeometry(1.3, 0.9, 3), marble);
-    p.rotation.z = Math.PI / 2; p.rotation.y = Math.PI / 2; p.scale.set(1, 1.6, 0.6);
-    p.position.set(x, 15.9, 2.0); group.add(p);
+    const tri = new THREE.Shape([new THREE.Vector2(-1.3, 0), new THREE.Vector2(1.3, 0), new THREE.Vector2(0, 0.9)]);
+    const p = new THREE.Mesh(new THREE.ExtrudeGeometry(tri, { depth: 1.1, bevelEnabled: false }), marble);
+    p.position.set(x, 15.45, 1.45); group.add(p);
   });
   [-6.6, -2.2, 2.2, 6.6].forEach((x) => box(1.1, 2.6, 0.3, x, 4.2, -0.05, shade)); // statue niches
   return group;
