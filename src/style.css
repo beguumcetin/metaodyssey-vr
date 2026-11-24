@@ -14,6 +14,12 @@ html, body { margin: 0; height: 100%; background: var(--night); color: var(--ink
   background: linear-gradient(180deg, #f6dfa4, #b8893d); -webkit-background-clip: text; background-clip: text; color: transparent; }
 .top .sub { margin: 2px 0 0; font-family: "Cormorant Garamond", serif; font-style: italic; font-size: 18px; color: var(--muted); }
 
+.sites { position: fixed; top: 20px; right: 24px; display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; max-width: 60vw; }
+.sites a { padding: 7px 12px; border: 1px solid rgba(217,178,106,.35); border-radius: 999px; color: var(--muted); text-decoration: none; font-size: 13px; background: rgba(11,20,48,.55); backdrop-filter: blur(4px); }
+.sites a b { color: var(--ink); font-weight: 600; margin-right: 2px; }
+.sites a.active { border-color: var(--gold); color: var(--gold); }
+.sites a:hover { border-color: var(--gold); }
+
 .bottom { position: fixed; left: 0; right: 0; bottom: 0; display: flex; gap: 16px; align-items: center; justify-content: space-between;
   padding: 14px 24px; background: linear-gradient(0deg, rgba(11,20,48,.85), transparent); font-size: 13px; color: var(--muted); }
 .link { background: none; border: 0; color: var(--gold); cursor: pointer; font: inherit; }
@@ -31,6 +37,7 @@ html, body { margin: 0; height: 100%; background: var(--night); color: var(--ink
 
 @media (max-width: 600px) {
   .top { left: 16px; top: 14px; }
+  .sites { top: auto; bottom: 64px; left: 16px; right: 16px; max-width: none; justify-content: flex-start; }
   .bottom { padding: 12px 16px; flex-wrap: wrap; }
   .hint { width: 100%; }
   .panel { right: 16px; left: 16px; width: auto; top: auto; bottom: 90px; }

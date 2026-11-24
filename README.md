@@ -4,7 +4,7 @@ One web page that works both as an online virtual museum and in a VR headset (We
 First exhibit: the Library of Celsus, Ephesus. Next: Sardis, Aigai.
 
 ## Run locally
-    python3 -m http.server 8080
+    python3 tools/serve.py
 Open http://localhost:8080. (VR needs HTTPS, so test on the headset after publishing, e.g. GitHub Pages.)
 
 ## Add the Celsus model

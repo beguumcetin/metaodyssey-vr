@@ -4,7 +4,9 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js';
 import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
 import { VRButton } from 'three/addons/webxr/VRButton.js';
-import { exhibits, credits } from './content.js';
+import { sites } from './content.js';
+
+const site = sites.find((x) => x.id === new URLSearchParams(location.search).get('site')) || sites[0];
 
 // ---------- renderer, scene, camera ----------
 const container = document.getElementById('app');
@@ -47,7 +49,7 @@ Object.assign(sun.shadow.camera, { left: -30, right: 30, top: 30, bottom: -10, f
 scene.add(sun);
 
 const floor = new THREE.Mesh(
-  new THREE.CircleGeometry(120, 64),
+  new THREE.CircleGeometry(400, 64),
   new THREE.MeshStandardMaterial({ color: 0x8a7a63, roughness: 0.95 })
 );
 floor.rotation.x = -Math.PI / 2;
@@ -55,47 +57,109 @@ floor.receiveShadow = true;
 floor.name = 'floor';
 scene.add(floor);
 
-// ---------- exhibits ----------
+// ---------- site ----------
 const hotspotMeshes = [];
+let floorY = 0;   // ground height under the visitor (drone scans have uneven terrain)
+if (!site.floor) floor.material.color.set(0x4a4033);   // dark ground under scans with their own terrain
+const debug = new URLSearchParams(location.search);   // ?grid=1 adds a 10 m grid, ?top=1 looks straight down
+document.querySelector('.top .sub').textContent = `Virtual Museum · ${site.city} · ${site.place}`;
+document.getElementById('loading').textContent = `Loading ${site.place}…`;
+document.title = `MetaOdyssey Virtual Museum: ${site.city}`;
+document.getElementById('sites').innerHTML = sites.map((x) =>
+  `<a href="?site=${x.id}" class="${x.id === site.id ? 'active' : ''}"><b>${x.city}</b> ${x.place}</a>`).join('');
+
 const gltfLoader = new GLTFLoader();
 const draco = new DRACOLoader();
 draco.setDecoderPath('https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/libs/draco/gltf/');
 gltfLoader.setDRACOLoader(draco);
 gltfLoader.setMeshoptDecoder(MeshoptDecoder);
 
-for (const exhibit of exhibits) loadExhibit(exhibit);
+loadSite(site);
 
-async function loadExhibit(exhibit) {
+async function loadSite(s) {
   let object;
   try {
-    const gltf = await gltfLoader.loadAsync(exhibit.model);
-    object = gltf.scene;
-    fitToHeight(object, exhibit.targetHeight);
+    const gltf = await gltfLoader.loadAsync(s.model);
+    gltf.scene.rotation.y = s.transform.rotationY;   // rotate inside a wrapper, then centre the wrapper
+    object = new THREE.Group().add(gltf.scene);
+    fitModel(object, s.fit);
   } catch (err) {
-    console.warn(`[MetaOdyssey] ${exhibit.model} not found, showing placeholder.`, err);
+    console.warn(`[MetaOdyssey] ${s.model} could not be loaded, showing placeholder.`, err);
     object = buildPlaceholderFacade();
   }
-  const t = exhibit.transform;
-  object.scale.multiplyScalar(t.scale);
-  object.rotation.y += t.rotationY;
-  object.position.add(new THREE.Vector3(...t.position));
+  object.position.add(new THREE.Vector3(...s.transform.position));
   object.traverse((o) => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
   scene.add(object);
+  object.updateMatrixWorld(true);
 
-  for (const h of exhibit.hotspots) hotspotMeshes.push(makeHotspot(h));
+  if (!s.floor) {
+    floorY = estimateGround(object);
+    floor.position.y = new THREE.Box3().setFromObject(object).min.y - 0.05;
+  }
+  if (debug.has('grid')) {
+    const grid = new THREE.GridHelper(200, 20, 0xff3355, 0x66ccff);
+    grid.position.y = floorY + 0.3;
+    scene.add(grid, new THREE.AxesHelper(20));
+  }
+  if (s.camera) {
+    const lift = new THREE.Vector3(0, floorY, 0);
+    camera.position.set(...s.camera.position).add(lift);
+    controls.target.set(...s.camera.target).add(lift);
+  } else {
+    frameObject(object);
+  }
+  if (debug.has('top')) {
+    const r = new THREE.Box3().setFromObject(object).getSize(new THREE.Vector3());
+    controls.target.set(0, floorY, 0);
+    camera.position.set(0, floorY + Math.max(r.x, r.z) * 1.1, 0.01);
+  }
+  // Hotspot heights are measured from the ground the visitor stands on.
+  for (const h of s.hotspots) {
+    const [x, y, z] = h.position;
+    const marker = makeHotspot({ ...h, position: [x, y + floorY, z] });
+    marker.scale.setScalar(s.hotspotSize || 1);
+    hotspotMeshes.push(marker);
+  }
   document.getElementById('loading').classList.add('done');
 }
 
-// Scale a model so its height equals `height` metres, base on the ground, centred.
-function fitToHeight(object, height) {
+// Scale a model (by height or by longest horizontal side), base on y = 0, centred on x/z.
+function fitModel(object, fit) {
   const box = new THREE.Box3().setFromObject(object);
   const size = box.getSize(new THREE.Vector3());
-  if (size.y > 0) object.scale.setScalar(height / size.y);
+  if (fit.height && size.y > 0) object.scale.setScalar(fit.height / size.y);
+  else if (fit.size) object.scale.setScalar(fit.size / Math.max(size.x, size.z));
   box.setFromObject(object);
   const center = box.getCenter(new THREE.Vector3());
   object.position.x -= center.x;
   object.position.z -= center.z;
   object.position.y -= box.min.y;
+}
+
+// Median height of the terrain under a 7x7 grid, so the visitor stands on the ground.
+function estimateGround(object) {
+  const box = new THREE.Box3().setFromObject(object);
+  const ray = new THREE.Raycaster();
+  const heights = [];
+  for (let i = 1; i < 8; i++) for (let j = 1; j < 8; j++) {
+    const x = box.min.x + (box.max.x - box.min.x) * i / 8;
+    const z = box.min.z + (box.max.z - box.min.z) * j / 8;
+    ray.set(new THREE.Vector3(x, box.max.y + 10, z), new THREE.Vector3(0, -1, 0));
+    const hit = ray.intersectObject(object, true)[0];
+    if (hit) heights.push(hit.point.y);
+  }
+  heights.sort((a, b) => a - b);
+  return heights.length ? heights[Math.floor(heights.length / 2)] : 0;
+}
+
+function frameObject(object) {
+  const box = new THREE.Box3().setFromObject(object);
+  const size = box.getSize(new THREE.Vector3());
+  const center = box.getCenter(new THREE.Vector3());
+  const r = Math.max(size.x, size.z);
+  controls.target.copy(center);
+  camera.position.set(center.x, center.y + r * 0.38, center.z + r * 0.62);
+  controls.maxDistance = r * 2;
 }
 
 // ---------- hotspots ----------
@@ -221,7 +285,7 @@ function onVrSelect(ctrl) {
 
 renderer.xr.addEventListener('sessionstart', () => {
   controls.enabled = false;
-  rig.position.set(0, 0, 16);   // start in front of the façade
+  rig.position.set(site.vrStart[0], floorY, site.vrStart[1]);
   camera.position.set(0, 0, 0); // headset supplies the head pose
 });
 renderer.xr.addEventListener('sessionend', () => {
@@ -232,8 +296,8 @@ renderer.xr.addEventListener('sessionend', () => {
 });
 
 // ---------- credits ----------
-document.getElementById('credits-body').innerHTML = credits.map((c) =>
-  `<p><a href="${c.url}" target="_blank" rel="noopener">${c.work}</a> by ${c.author}, ${c.license}. ${c.changes}</p>`
+document.getElementById('credits-body').innerHTML = sites.map(({ city, place, credit: c }) =>
+  `<p><b>${city} · ${place}:</b> <a href="${c.url}" target="_blank" rel="noopener">${c.work}</a> by ${c.author}, ${c.license}. Simplified and compressed for web and VR.</p>`
 ).join('') + '<p>MetaOdyssey · Erasmus+ 2025-3-TR01-KA152-YOU-000382053</p>';
 document.getElementById('credits-btn').onclick = () => { document.getElementById('credits').hidden = false; };
 document.querySelector('[data-close="credits"]').onclick = () => { document.getElementById('credits').hidden = true; };
