@@ -18,8 +18,8 @@ import { createTour } from './tour.js';
 import { createVrPanel } from './vr-panel.js';
 
 const params = new URLSearchParams(location.search);
-let lang = ['en', 'tr'].includes(params.get('lang')) ? params.get('lang')
-  : (navigator.language || 'en').toLowerCase().startsWith('tr') ? 'tr' : 'en';
+// The museum is in English; ?lang=tr still opens the Turkish version.
+let lang = params.get('lang') === 'tr' ? 'tr' : 'en';
 
 // ---------- renderer, scene, camera ----------
 const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
