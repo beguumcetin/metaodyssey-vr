@@ -1,757 +1,331 @@
+// MetaOdyssey virtual museum: a living Ephesus with a narrated tour, on desktop and in WebXR headsets.
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
-import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js';
 import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
-import { VRButton } from 'three/addons/webxr/VRButton.js';
-import { Sky } from 'three/addons/objects/Sky.js';
-import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
-import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
-import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
-import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
-import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
-import { sites, upcoming } from './content.js';
+import { XRControllerModelFactory } from 'three/addons/webxr/XRControllerModelFactory.js';
+import { addSky, addSun, addTerrain, addPaving } from './world/landscape.js';
+import { addTrees, addGroundCover } from './world/vegetation.js';
+import { addRuins } from './world/ruins.js';
+import { addBirds, addDust } from './world/life.js';
+import { patchMaterial, uTime } from './world/shaders.js';
+import { createAmbience } from './audio.js';
+import { ephesus as site } from './sites/ephesus.js';
+import { createTour } from './tour.js';
+import { createVrPanel } from './vr-panel.js';
 
 const params = new URLSearchParams(location.search);
-const site = sites.find((x) => x.id === params.get('site')) || null;   // null = museum hall
-const mood = params.get('mood') === 'golden' ? 'golden' : 'day';      // ?mood=golden: low evening sun (day style)
-// ?style=: day | holo (hologram) | scan (stone below, digital above) | neon
-const STYLES = { day: 0, holo: 1, scan: 2, neon: 3 };
-const style = params.get('style') in STYLES ? params.get('style') : 'scan';
-const cyber = style !== 'day';
-const CYAN = new THREE.Color(0x3fe0ff), MAGENTA = new THREE.Color(0xff2bd6), AMBER = new THREE.Color(0xffc861);
-const ACCENT = style === 'neon' ? MAGENTA : style === 'scan' ? AMBER : CYAN;
-const uTime = { value: 0 };   // shared by every animated shader
-let composer = null;          // bloom (desktop only; WebXR renders without it)
-
-const GOLD = 0xd9b26a;
-const NAVY = 0x0d1530;
+let lang = ['en', 'tr'].includes(params.get('lang')) ? params.get('lang')
+  : (navigator.language || 'en').toLowerCase().startsWith('tr') ? 'tr' : 'en';
 
 // ---------- renderer, scene, camera ----------
-const renderer = new THREE.WebGLRenderer({ antialias: true });
+const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 0.8;
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 renderer.xr.enabled = true;
+renderer.xr.setReferenceSpaceType('local-floor');
 document.getElementById('app').appendChild(renderer.domElement);
 
 const scene = new THREE.Scene();
-const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.05, 6000);
-const rig = new THREE.Group();          // moved when teleporting in VR
+window.__scene = scene;
+const camera = new THREE.PerspectiveCamera(55, window.innerWidth / window.innerHeight, 0.1, 9000);
+const rig = new THREE.Group();   // the visitor in VR; moved by teleporting and by the tour
 rig.add(camera);
 scene.add(rig);
 
 const controls = new OrbitControls(camera, renderer.domElement);
 controls.enableDamping = true;
-controls.maxPolarAngle = Math.PI * 0.49;
+controls.dampingFactor = 0.08;
+controls.maxPolarAngle = Math.PI * 0.495;
+controls.minDistance = 2;
+controls.maxDistance = 260;
 
-const gltfLoader = new GLTFLoader();
-const draco = new DRACOLoader();
-draco.setDecoderPath('https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/libs/draco/gltf/');
-gltfLoader.setDRACOLoader(draco);
+const manager = new THREE.LoadingManager();
+const gltfLoader = new GLTFLoader(manager);
 gltfLoader.setMeshoptDecoder(MeshoptDecoder);
 
-const hotspotMeshes = [];   // info points (site view)
-const exhibits = [];        // clickable plinths (hall view)
-let floor;                  // teleport surface
-let floorY = 0;             // ground height under the visitor
-let vrStart = [0, 15];
+// ---------- world ----------
+const ground = [];   // surfaces the VR visitor can teleport onto
+const animators = [];
+const ambience = createAmbience();
 
-setupUi();
-if (site) buildSite(site); else buildHall();
-
-// =====================================================================
-// Site view: one stop at full scale, in daylight
-// =====================================================================
-async function buildSite(s) {
-  if (cyber) setupCyber(s); else setupDaylight(s);
-  vrStart = s.vrStart;
-
-  const object = await loadScan(s);
-  scene.add(object);
-  floorY = s.floor ? 0 : estimateGround(object);
-  const top = new THREE.Box3().setFromObject(object).max.y;
-  applyFade(object, s.fade, cyber ? 0x000000 : s.ground, undefined, { style, baseY: floorY, height: top - floorY });
-  if (style === 'holo') scene.add(makePointCloud(object, CYAN, 0.03));
-  floor.position.y = floorY - (s.floor ? 0.02 : 0.25);
-
-  if (s.camera) {
-    const lift = new THREE.Vector3(0, floorY, 0);
-    camera.position.set(...s.camera.position).add(lift);
-    controls.target.set(...s.camera.target).add(lift);
-  } else {
-    frameObject(object);
-  }
-  controls.maxDistance = s.fade.radius * 2.2;
-  controls.minDistance = 2;
-
-  for (const h of s.hotspots) {
-    const [x, y, z] = h.position;
-    const marker = makeHotspot({ ...h, position: [x, y + floorY, z] });
-    marker.scale.setScalar(s.hotspotSize || 1);
-    hotspotMeshes.push(marker);
-  }
-  if (params.has('grid')) {
-    const grid = new THREE.GridHelper(200, 20, 0xff3355, 0x66ccff);
-    grid.position.y = floorY + 0.3;
-    scene.add(grid);
-  }
-  doneLoading();
+async function buildWorld() {
+  await addSky(scene, renderer, manager);
+  addSun(scene);
+  ground.push(addTerrain(scene, manager));
+  addPaving(scene, manager);
+  scene.traverse((o) => { if (o.name === 'paving') ground.push(o); });
+  addRuins(scene, manager);
+  addTrees(scene);
+  animators.push(addBirds(scene), addDust(scene));
+  await Promise.all([loadScan(), addGroundCover(scene, gltfLoader)]);
 }
 
-function setupDaylight(s) {
-  const golden = mood === 'golden';
-  const sky = new Sky();
-  sky.scale.setScalar(5000);
-  const u = sky.material.uniforms;
-  u.turbidity.value = golden ? 8 : 4;
-  u.rayleigh.value = golden ? 2.2 : 1.2;
-  u.mieCoefficient.value = 0.005;
-  u.mieDirectionalG.value = 0.85;
-  const sunDir = new THREE.Vector3().setFromSphericalCoords(1,
-    THREE.MathUtils.degToRad(90 - (golden ? 5 : 38)), THREE.MathUtils.degToRad(golden ? 200 : 160));
-  u.sunPosition.value.copy(sunDir);
-  scene.add(sky);
-  renderer.toneMappingExposure = golden ? 0.45 : 0.42;
-
-  const horizon = golden ? 0xd9b08c : 0xc9d6e2;
-  const size = s.fade.radius;
-  scene.fog = new THREE.Fog(horizon, size * 2.5, size * 14);
-
-  // Ground: unlit like the scans, same colour as the fade, so the edge disappears.
-  floor = new THREE.Mesh(
-    new THREE.CircleGeometry(4000, 96).rotateX(-Math.PI / 2),
-    new THREE.MeshBasicMaterial({ color: s.ground, map: terrainTexture(), toneMapped: false })
-  );
-  floor.material.map.repeat.set(120, 120);   // one tile ≈ 65 m
-  scene.add(floor);
-  scene.add(makeHills(s.fade.radius * 9, s.ground, horizon));
-}
-
-// A ring of low, soft hills on the horizon so the site sits in a landscape.
-function makeHills(radius, groundColor, horizon) {
-  const seg = 180, geo = new THREE.BufferGeometry();
-  const pos = [], col = [], idx = [];
-  const near = new THREE.Color(groundColor).multiplyScalar(0.85), far = new THREE.Color(horizon);
-  const peak = (a) => 0.5 + 0.5 * Math.sin(a * 3 + 1.3) * Math.sin(a * 7 + 0.4) + 0.25 * Math.sin(a * 17);
-  for (let i = 0; i <= seg; i++) {
-    const a = (i / seg) * Math.PI * 2;
-    const h = radius * (0.035 + 0.05 * Math.max(0, peak(a)));
-    const x = Math.cos(a) * radius, z = Math.sin(a) * radius;
-    pos.push(x, -2, z, x * 1.05, h, z * 1.05);
-    const c = near.clone().lerp(far, 0.55);
-    col.push(c.r, c.g, c.b, far.r, far.g, far.b);
-    if (i < seg) { const k = i * 2; idx.push(k, k + 2, k + 1, k + 1, k + 2, k + 3); }
-  }
-  geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
-  geo.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
-  geo.setIndex(idx);
-  return new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.DoubleSide, toneMapped: false, fog: false }));
-}
-
-// Dark digital world: glowing horizon, neon grid floor, drifting particles, bloom.
-function setupCyber(s) {
-  const glow = style === 'neon' ? new THREE.Color(0xff2bd6) : style === 'scan' ? new THREE.Color(0xd98a2b) : new THREE.Color(0x1aa6d9);
-  scene.add(new THREE.Mesh(new THREE.SphereGeometry(3000, 48, 24), new THREE.ShaderMaterial({
-    side: THREE.BackSide, depthWrite: false, fog: false, toneMapped: false,
-    uniforms: { uGlow: { value: glow } },
-    vertexShader: 'varying vec3 vP; void main(){ vP = normalize(position); gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
-    fragmentShader: `uniform vec3 uGlow; varying vec3 vP;
-      void main(){
-        float h = vP.y;
-        vec3 c = mix(vec3(0.012, 0.016, 0.045), vec3(0.0, 0.0, 0.01), clamp(h * 1.6, 0.0, 1.0));
-        c += uGlow * exp(-abs(h) * 14.0) * 0.55;
-        gl_FragColor = vec4(c, 1.0); }`,
-  })));
-  scene.fog = new THREE.FogExp2(0x02030a, 0.9 / (s.fade.radius * 6));
-
-  const gridColor = style === 'neon' ? new THREE.Color(0xff2bd6) : CYAN;
-  floor = new THREE.Mesh(new THREE.PlaneGeometry(6000, 6000).rotateX(-Math.PI / 2), new THREE.ShaderMaterial({
-    toneMapped: false, fog: false,
-    uniforms: { uColor: { value: gridColor }, uCell: { value: Math.max(2, s.fade.radius / 8) }, uTime },
-    vertexShader: 'varying vec3 vW; void main(){ vec4 w = modelMatrix * vec4(position, 1.0); vW = w.xyz; gl_Position = projectionMatrix * viewMatrix * w; }',
-    fragmentShader: `uniform vec3 uColor; uniform float uCell; uniform float uTime; varying vec3 vW;
-      float line(float v, float w){ float f = abs(fract(v - 0.5) - 0.5) / fwidth(v); return 1.0 - min(f / w, 1.0); }
-      void main(){
-        vec2 p = vW.xz / uCell;
-        float g = max(line(p.x, 1.0), line(p.y, 1.0)) * 0.55 + max(line(p.x / 5.0, 1.4), line(p.y / 5.0, 1.4)) * 0.6;
-        float dist = length(vW.xz);
-        float fade = exp(-dist / (uCell * 40.0));
-        float pulse = 0.5 + 0.5 * sin(dist / uCell * 0.6 - uTime * 1.5);
-        vec3 c = vec3(0.004, 0.006, 0.02) + uColor * g * fade * (0.55 + 0.45 * pulse);
-        gl_FragColor = vec4(c, 1.0); }`,
-  }));
-  scene.add(floor);
-  scene.add(makeDust(s.fade.radius * 1.6, ACCENT));
-
-  composer = new EffectComposer(renderer);
-  composer.addPass(new RenderPass(scene, camera));
-  composer.addPass(new UnrealBloomPass(new THREE.Vector2(window.innerWidth, window.innerHeight), 0.85, 0.55, 0.62));
-  composer.addPass(new OutputPass());
-  renderer.toneMappingExposure = 1.0;
-  document.body.classList.add('cyber');
-}
-
-// Slowly rising glowing specks around the site.
-function makeDust(radius, color) {
-  const n = 1400, pos = new Float32Array(n * 3);
-  for (let i = 0; i < n; i++) {
-    const a = Math.random() * Math.PI * 2, r = Math.sqrt(Math.random()) * radius;
-    pos.set([Math.cos(a) * r, Math.random() * radius * 0.5, Math.sin(a) * r], i * 3);
-  }
-  const geo = new THREE.BufferGeometry();
-  geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
-  const pts = new THREE.Points(geo, new THREE.PointsMaterial({ color, size: radius / 260, transparent: true, opacity: 0.7,
-    blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false }));
-  pts.userData.rise = radius * 0.5;
-  return pts;
-}
-
-// Vertices of the scan as glowing points (hologram style).
-function makePointCloud(object, color, size) {
-  const group = new THREE.Group();
-  object.updateMatrixWorld(true);
-  object.traverse((o) => {
-    if (!o.isMesh) return;
-    const pts = new THREE.Points(o.geometry, new THREE.PointsMaterial({ color, size, transparent: true, opacity: 0.16,
-      blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false }));
-    pts.applyMatrix4(o.matrixWorld);
-    group.add(pts);
-  });
-  return group;
-}
-
-// =====================================================================
-// Museum hall: every stop as a model on a plinth
-// =====================================================================
-async function buildHall() {
-  const W = 14, L = 30, H = 6.5;
-  const pmrem = new THREE.PMREMGenerator(renderer);
-  scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
-  scene.background = new THREE.Color(0x070b18);
-  renderer.toneMappingExposure = 1.0;
-
-  // Floor: pale polished marble.
-  floor = new THREE.Mesh(
-    new THREE.PlaneGeometry(W, L).rotateX(-Math.PI / 2),
-    new THREE.MeshStandardMaterial({ map: marbleTexture(), roughness: 0.22, metalness: 0 })
-  );
-  floor.material.map.repeat.set(4, 10);
-  scene.add(floor);
-
-  // Walls and ceiling: deep navy, the MetaOdyssey night.
-  const wallMat = new THREE.MeshStandardMaterial({ color: 0x15204a, roughness: 0.85 });
-  const ceilMat = new THREE.MeshStandardMaterial({ color: 0x0a1028, roughness: 1 });
-  const hidden = new THREE.MeshBasicMaterial({ visible: false });   // the marble floor replaces the box bottom
-  const room = new THREE.Mesh(new THREE.BoxGeometry(W, H, L), [wallMat, wallMat, ceilMat, hidden, wallMat, wallMat]);
-  room.geometry.scale(-1, 1, 1);   // faces inward
-  room.position.y = H / 2;
-  scene.add(room);
-
-  // Gold lines along the walls, skylight strip in the ceiling.
-  const goldMat = new THREE.MeshStandardMaterial({ color: GOLD, metalness: 1, roughness: 0.3 });
-  for (const x of [-W / 2 + 0.01, W / 2 - 0.01]) {
-    const line = new THREE.Mesh(new THREE.BoxGeometry(0.02, 0.04, L), goldMat);
-    line.position.set(x, 3.2, 0);
-    scene.add(line);
-  }
-  // Row of small warm ceiling lights instead of one bright strip.
-  for (let z = -L / 2 + 3; z < L / 2 - 1; z += 3) {
-    const lamp = new THREE.Mesh(new THREE.CircleGeometry(0.18, 24).rotateX(Math.PI / 2),
-      new THREE.MeshBasicMaterial({ color: 0xffe2b0 }));
-    lamp.position.set(0, H - 0.01, z);
-    scene.add(lamp);
-  }
-  scene.add(new THREE.HemisphereLight(0xdfe6ff, 0x2a2418, 0.5));
-
-  // Title on the end wall.
-  await document.fonts.load('700 120px "Cinzel Decorative"');
-  await document.fonts.load('italic 500 60px "Cormorant Garamond"');
-  const title = textPlane(2048, 512, 11, 2.75, (g, w, h) => {
-    const grad = g.createLinearGradient(0, 120, 0, 300);
-    grad.addColorStop(0, '#f6dfa4'); grad.addColorStop(1, '#b8893d');
-    g.fillStyle = grad; g.font = '700 220px "Cinzel Decorative"'; g.textAlign = 'center';
-    g.fillText('MetaOdyssey', w / 2, 290);
-    g.fillStyle = '#d8cfbd'; g.font = 'italic 500 84px "Cormorant Garamond"';
-    g.fillText('Virtual Museum of Ancient Ionia and Lydia', w / 2, 430);
-  });
-  title.position.set(0, 4.3, -L / 2 + 0.02);
-  scene.add(title);
-
-  // Plinths.
-  const loads = sites.map(async (s) => {
-    const group = makePlinth(s.hall, s.city, s.place, 'Click to step inside');
-    const scan = await loadScan(s);
-    const ground = s.floor ? 0 : estimateGround(scan);
-    const wrapper = new THREE.Group().add(scan);
-    const k = 1.42 / s.fade.radius;               // scan circle → plinth top
-    wrapper.scale.setScalar(k);
-    wrapper.position.set(s.hall[0] - s.fade.center[0] * k, 1.0 - ground * k, s.hall[1] - s.fade.center[1] * k);
-    scene.add(wrapper);
-    wrapper.updateMatrixWorld(true);
-    applyFade(scan, s.fade, NAVY, wrapper.matrixWorld.clone().invert());
-    group.userData.siteId = s.id;
-    exhibits.push(group, wrapper);
-    wrapper.userData.siteId = s.id;
-  });
-  for (const u of upcoming) {
-    const group = makePlinth(u.hall, u.city, u.place, u.note);
-    group.add(makeScanPlaceholder());
-  }
-  await Promise.all(loads);
-
-  camera.position.set(0, 2.4, 13.5);
-  controls.target.set(0, 1.2, 0.5);
-  controls.minDistance = 2;
-  controls.maxDistance = 14;
-  vrStart = [0, 12];
-  doneLoading();
-}
-
-function makePlinth([x, z], city, place, note) {
-  const group = new THREE.Group();
-  group.position.set(x, 0, z);
-  const body = new THREE.Mesh(new THREE.CylinderGeometry(1.5, 1.6, 1.0, 64),
-    new THREE.MeshStandardMaterial({ color: NAVY, roughness: 0.35, metalness: 0.2 }));
-  body.position.y = 0.5;
-  const top = new THREE.Mesh(new THREE.CircleGeometry(1.5, 64).rotateX(-Math.PI / 2),
-    new THREE.MeshBasicMaterial({ color: NAVY, toneMapped: false }));
-  top.position.y = 1.001;
-  const ring = new THREE.Mesh(new THREE.TorusGeometry(1.5, 0.018, 8, 96).rotateX(Math.PI / 2),
-    new THREE.MeshStandardMaterial({ color: GOLD, metalness: 1, roughness: 0.25 }));
-  ring.position.y = 1.0;
-  group.add(body, top, ring);
-
-  // Lectern with the label, on the aisle side.
-  const side = x < 0 ? 1 : -1;
-  const plaque = textPlane(1024, 512, 1.1, 0.55, (g, w, h) => {
-    g.fillStyle = '#0d1530'; g.fillRect(0, 0, w, h);
-    g.strokeStyle = '#d9b26a'; g.lineWidth = 6; g.strokeRect(14, 14, w - 28, h - 28);
-    g.fillStyle = '#e8c77e'; g.font = '700 96px "Cinzel Decorative"'; g.fillText(city, 56, 150);
-    g.fillStyle = '#efe6d2'; g.font = 'italic 500 64px "Cormorant Garamond"'; g.fillText(place, 58, 240);
-    g.fillStyle = '#b9b2a3'; g.font = '34px "Instrument Sans"'; wrapText(g, note, 58, 330, w - 116, 46);
-  });
-  plaque.position.set(side * 2.05, 1.0, 1.1);
-  plaque.rotation.set(-0.45, side * 0.6, 0, 'YXZ');
-  const stand = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.95, 0.08),
-    new THREE.MeshStandardMaterial({ color: GOLD, metalness: 1, roughness: 0.3 }));
-  stand.position.set(side * 2.05, 0.47, 1.1);
-  group.add(plaque, stand);
-
-  const spot = new THREE.SpotLight(0xfff0d8, 40, 12, 0.42, 0.7, 2);
-  spot.position.set(0, 6.6, 1.5);
-  spot.target = body;
-  group.add(spot);
-
-  scene.add(group);
-  return group;
-}
-
-// Aigai is not scanned yet: a slowly turning gold point cloud.
-function makeScanPlaceholder() {
-  const n = 2600, pos = new Float32Array(n * 3);
-  for (let i = 0; i < n; i++) {
-    const a = Math.random() * Math.PI * 2, r = Math.sqrt(Math.random()) * 1.3;
-    const h = Math.random() < 0.55 ? Math.random() * 0.12 : Math.random() * 0.75 * (1 - r / 1.4);
-    pos.set([Math.cos(a) * r, 1.02 + h, Math.sin(a) * r], i * 3);
-  }
-  const geo = new THREE.BufferGeometry();
-  geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
-  const cloud = new THREE.Points(geo, new THREE.PointsMaterial({ color: 0xf2c96b, size: 0.025, transparent: true, opacity: 0.85 }));
-  cloud.userData.spin = true;
-  return cloud;
-}
-
-// =====================================================================
-// Shared: loading scans, fading their edges
-// =====================================================================
-async function loadScan(s) {
-  const gltf = await gltfLoader.loadAsync(s.model);
-  gltf.scene.rotation.y = s.transform.rotationY;   // rotate inside a wrapper, then centre the wrapper
+async function loadScan() {
+  const gltf = await gltfLoader.loadAsync(site.model);
   const object = new THREE.Group().add(gltf.scene);
-  fitModel(object, s.fit);
-  object.position.add(new THREE.Vector3(...s.transform.position));
-  object.traverse((o) => {
-    if (o.isMesh) for (const m of [].concat(o.material)) m.toneMapped = false;   // show the photos' own colours
-  });
-  object.updateMatrixWorld(true);
-  return object;
-}
-
-// Scale a model (by height or by longest horizontal side), base on y = 0, centred on x/z.
-function fitModel(object, fit) {
   const box = new THREE.Box3().setFromObject(object);
   const size = box.getSize(new THREE.Vector3());
-  if (fit.height && size.y > 0) object.scale.setScalar(fit.height / size.y);
-  else if (fit.size) object.scale.setScalar(fit.size / Math.max(size.x, size.z));
+  object.scale.setScalar(site.fit.height / size.y);
   box.setFromObject(object);
-  const center = box.getCenter(new THREE.Vector3());
-  object.position.x -= center.x;
-  object.position.z -= center.z;
-  object.position.y -= box.min.y;
-}
-
-// Fade the scan into `color` towards the edge of a circle and cut it off there.
-// siteMatrix maps world space back to the site's own metres (identity at full scale).
-// look.style also restyles the photo colours (hologram / scan / neon); see STYLES.
-function applyFade(object, fade, color, siteMatrix = new THREE.Matrix4(), look = { style: 'day', baseY: 0, height: 10 }) {
-  const uniforms = {
-    uFadeCenter: { value: new THREE.Vector2(...fade.center) },
-    uFadeRadius: { value: fade.radius },
-    uFadeWidth: { value: fade.width },
-    uFadeColor: { value: new THREE.Color(color) },
-    uSiteMatrix: { value: siteMatrix },
-    uStyle: { value: STYLES[look.style] },
-    uBaseY: { value: look.baseY },
-    uHeight: { value: Math.max(look.height, 1) },
-    uCyan: { value: CYAN }, uMagenta: { value: MAGENTA }, uAmber: { value: AMBER },
-    uTime,
-  };
+  const c = box.getCenter(new THREE.Vector3());
+  object.position.set(-c.x + site.offset[0], -box.min.y + site.offset[1], -c.z + site.offset[2]);
   object.traverse((o) => {
     if (!o.isMesh) return;
+    o.castShadow = true;
     for (const m of [].concat(o.material)) {
-      m.onBeforeCompile = (sh) => {
-        Object.assign(sh.uniforms, uniforms);
-        sh.vertexShader = 'uniform mat4 uSiteMatrix;\nvarying vec3 vSitePos;\n' + sh.vertexShader.replace(
-          '#include <project_vertex>',
-          '#include <project_vertex>\n  vSitePos = (uSiteMatrix * modelMatrix * vec4(transformed, 1.0)).xyz;');
-        sh.fragmentShader = `uniform vec2 uFadeCenter; uniform float uFadeRadius; uniform float uFadeWidth; uniform vec3 uFadeColor;
-uniform int uStyle; uniform float uBaseY; uniform float uHeight; uniform float uTime;
-uniform vec3 uCyan; uniform vec3 uMagenta; uniform vec3 uAmber;
-varying vec3 vSitePos;
-` + sh.fragmentShader.replace(
-          '#include <opaque_fragment>',
-          `#include <opaque_fragment>
-  { float d = distance(vSitePos.xz, uFadeCenter);
-    if (d > uFadeRadius) discard;
-    float edge = smoothstep(uFadeRadius - uFadeWidth, uFadeRadius, d);
-    vec3 c = gl_FragColor.rgb;
-    float lum = dot(c, vec3(0.2126, 0.7152, 0.0722));
-    float y = vSitePos.y - uBaseY;
-    float lines = smoothstep(0.82, 1.0, fract(y * 2.2 - uTime * 0.5));
-    if (uStyle == 1) {            // hologram
-      float sweep = exp(-pow((y - mod(uTime * uHeight * 0.18, uHeight * 1.4) + uHeight * 0.2) * 1.4, 2.0));
-      c = uCyan * (0.03 + 0.75 * lum) + uCyan * lines * 0.25 + vec3(0.6, 0.95, 1.0) * sweep * 0.6;
-    } else if (uStyle == 2) {     // real stone below the scan line, digital above
-      float level = uHeight * (0.5 + 0.38 * sin(uTime * 0.32));
-      float band = exp(-pow((y - level) * 5.0, 2.0));
-      vec3 holo = uCyan * (0.06 + 1.25 * lum) + uCyan * lines * 0.3;
-      c = mix(c, holo, smoothstep(level - 0.15, level + 0.15, y)) + uAmber * band * 0.9;
-    } else if (uStyle == 3) {     // neon: height gradient magenta → cyan
-      vec3 grad = mix(uMagenta, uCyan, clamp(y / uHeight, 0.0, 1.0));
-      c = mix(c * 0.45, grad * (0.15 + 1.5 * lum), 0.7) + grad * lines * 0.18;
-    }
-    gl_FragColor.rgb = mix(c, uFadeColor, edge); }`);
-      };
-      m.customProgramCacheKey = () => 'fade-look';
-      m.needsUpdate = true;
+      m.toneMapped = false;   // keep the photographs' own colours
+      patchMaterial(m, {
+        fade: site.fade, cloud: true, key: 'scan',
+        // the photos caught sky through the window openings: turn those blue pixels into a dark interior
+        extra: (sh) => { sh.fragmentShader = sh.fragmentShader.replace('#include <opaque_fragment>', `#include <opaque_fragment>
+  { vec3 c = gl_FragColor.rgb;
+    float sky = smoothstep(0.06, 0.16, c.b - max(c.r, c.g * 0.92)) * smoothstep(0.12, 0.3, c.b);
+    gl_FragColor.rgb = mix(c, vec3(0.03, 0.025, 0.02), sky); }`); },
+      });
     }
   });
+  scene.add(object, makeHall(site.hall));
+  window.__scan = object;   // handy for inspecting from the console
 }
 
-// Median height of the terrain under a 7x7 grid, so the visitor stands on the ground.
-function estimateGround(object) {
-  const box = new THREE.Box3().setFromObject(object);
-  const ray = new THREE.Raycaster();
-  const heights = [];
-  for (let i = 1; i < 8; i++) for (let j = 1; j < 8; j++) {
-    const x = box.min.x + (box.max.x - box.min.x) * i / 8;
-    const z = box.min.z + (box.max.z - box.min.z) * j / 8;
-    ray.set(new THREE.Vector3(x, box.max.y + 10, z), new THREE.Vector3(0, -1, 0));
-    const hit = ray.intersectObject(object, true)[0];
-    if (hit) heights.push(hit.point.y);
+// The reading hall behind the façade, so its windows and door show a dark interior instead of sky.
+function makeHall([x0, x1, z0, z1, h]) {
+  const geo = new THREE.BoxGeometry(x1 - x0, h, z1 - z0).translate((x0 + x1) / 2, h / 2, (z0 + z1) / 2);
+  const hidden = new THREE.MeshBasicMaterial({ visible: false });
+  const outside = patchMaterial(new THREE.MeshStandardMaterial({ color: 0xb09a7e, roughness: 0.95 }), { cloud: true, key: 'hall' });
+  const inside = new THREE.MeshStandardMaterial({ color: 0x6b5a48, roughness: 1, side: THREE.BackSide, envMapIntensity: 0.35 });
+  // roofless, like the real ruin; the front face is left open for the façade
+  const shell = new THREE.Mesh(geo, [outside, outside, hidden, outside, hidden, outside]);
+  const t = 0.12;   // wall thickness
+  const inner = new THREE.BoxGeometry(x1 - x0 - 2 * t, h, z1 - z0 - 2 * t).translate((x0 + x1) / 2, h / 2, (z0 + z1) / 2);
+  const room = new THREE.Mesh(inner, [inside, inside, hidden, inside, hidden, inside]);
+  shell.castShadow = true;
+  room.receiveShadow = true;
+  return new THREE.Group().add(shell, room);
+}
+
+// ---------- tour (desktop camera + narration) ----------
+const ui = {
+  intro: document.getElementById('intro'),
+  start: document.getElementById('start'),
+  explore: document.getElementById('explore'),
+  chapters: document.getElementById('chapters'),
+  caption: document.getElementById('caption'),
+  captionTitle: document.getElementById('caption-title'),
+  captionText: document.getElementById('caption-text'),
+  controls: document.getElementById('controls'),
+  play: document.getElementById('play'),
+  prev: document.getElementById('prev'),
+  next: document.getElementById('next'),
+  sound: document.getElementById('sound'),
+};
+
+const vrPanel = createVrPanel();
+vrPanel.setChapters(site.chapters);
+const tour = createTour({
+  site, camera, controls, rig, renderer,
+  getLang: () => lang,
+  isMuted: () => ambience.muted,
+  onChange: (state) => { renderUi(state); vrPanel.update(state, lang); },
+});
+
+const STRINGS = {
+  en: { start: 'Start the tour', explore: 'Explore freely', loading: 'Loading', sound: 'Sound', mute: 'Muted', credits: 'Credits', end: 'Explore freely: drag to look around, scroll to zoom.', eyebrow: 'MetaOdyssey · Virtual Museum' },
+  tr: { start: 'Turu başlat', explore: 'Serbest gez', loading: 'Yükleniyor', sound: 'Ses', mute: 'Sessiz', credits: 'Kaynaklar', end: 'Serbest gezinti: sürükleyerek etrafa bak, tekerlekle yaklaş.', eyebrow: 'MetaOdyssey · Sanal Müze' },
+};
+
+function renderUi(state) {
+  const s = STRINGS[lang];
+  ui.chapters.innerHTML = site.chapters.map((ch, i) =>
+    `<button class="${i === state.index ? 'on' : ''}" data-i="${i}"><span>${String(i + 1).padStart(2, '0')}</span>${ch.title[lang]}</button>`).join('');
+  ui.chapters.querySelectorAll('button').forEach((b) => { b.onclick = () => { startAudio(); tour.goTo(+b.dataset.i, true); }; });
+  const ch = site.chapters[state.index];
+  ui.captionTitle.textContent = state.index >= 0 ? ch.title[lang] : '';
+  ui.captionText.textContent = state.ended ? s.end : state.sentence || '';
+  ui.play.textContent = state.playing ? '❚❚' : '▶';
+  ui.play.setAttribute('aria-label', state.playing ? 'Pause' : 'Play');
+  ui.sound.textContent = ambience.muted ? s.mute : s.sound;
+  ui.sound.classList.toggle('off', ambience.muted);
+}
+
+function applyLang() {
+  const s = STRINGS[lang];
+  document.documentElement.lang = lang;
+  document.getElementById('eyebrow').textContent = s.eyebrow;
+  document.getElementById('intro-title').textContent = site.city[lang];
+  document.getElementById('intro-sub').textContent = site.place[lang];
+  document.getElementById('where').textContent = `${site.city[lang]} · ${site.place[lang]}`;
+  ui.explore.textContent = s.explore;
+  if (!ui.start.disabled) ui.start.textContent = s.start;
+  document.getElementById('credits-btn').textContent = s.credits;
+  document.querySelectorAll('[data-lang]').forEach((b) => b.classList.toggle('on', b.dataset.lang === lang));
+  document.title = `MetaOdyssey · ${site.city[lang]}`;
+  renderUi(tour.state);
+}
+
+function startAudio() { ambience.start(); }
+
+function enterTour(play) {
+  startAudio();
+  ui.intro.classList.add('gone');
+  ui.chapters.hidden = ui.caption.hidden = ui.controls.hidden = false;
+  if (play) tour.goTo(0, true);
+  else tour.explore();
+}
+
+ui.start.onclick = () => enterTour(true);
+ui.explore.onclick = () => enterTour(false);
+ui.play.onclick = () => { startAudio(); tour.toggle(); };
+ui.prev.onclick = () => tour.goTo(Math.max(0, tour.state.index - 1), true);
+ui.next.onclick = () => tour.goTo(Math.min(site.chapters.length - 1, tour.state.index + 1), true);
+ui.sound.onclick = () => { ambience.setMuted(!ambience.muted); tour.refreshVoice(); renderUi(tour.state); };
+document.querySelectorAll('[data-lang]').forEach((b) => { b.onclick = () => { lang = b.dataset.lang; applyLang(); tour.refreshVoice(); }; });
+document.getElementById('credits-btn').onclick = () => { document.getElementById('credits').hidden = false; };
+document.querySelector('[data-close="credits"]').onclick = () => { document.getElementById('credits').hidden = true; };
+document.getElementById('credits-body').innerHTML = site.credits.map((c) =>
+  `<p><a href="${c.url}" target="_blank" rel="noopener">${c.work}</a> · ${c.author} · ${c.license}</p>`).join('') +
+  '<p>Columns, trees, birds and sound are generated in the browser. Built with three.js.</p>' +
+  '<p>MetaOdyssey · Erasmus+ 2025-3-TR01-KA152-YOU-000382053</p>';
+
+let failed = false;
+manager.onProgress = (url, loaded, total) => {
+  if (ui.start.disabled && !failed) ui.start.textContent = `${STRINGS[lang].loading} ${Math.round((loaded / total) * 100)}%`;
+};
+
+// ---------- VR ----------
+// "Enter VR" buttons appear only where a headset can actually be used (e.g. the Quest browser).
+async function setupVrButtons() {
+  if (!navigator.xr || !(await navigator.xr.isSessionSupported('immersive-vr').catch(() => false))) return;
+  let session = null;
+  for (const b of document.querySelectorAll('.vr-btn')) {
+    b.hidden = false;
+    b.onclick = async () => {
+      if (session) { session.end(); return; }
+      session = await navigator.xr.requestSession('immersive-vr', { optionalFeatures: ['local-floor', 'bounded-floor', 'hand-tracking'] });
+      session.addEventListener('end', () => { session = null; });
+      await renderer.xr.setSession(session);
+    };
   }
-  heights.sort((a, b) => a - b);
-  return heights.length ? heights[Math.floor(heights.length / 2)] : 0;
 }
+setupVrButtons();
 
-function frameObject(object) {
-  const box = new THREE.Box3().setFromObject(object);
-  const size = box.getSize(new THREE.Vector3());
-  const center = box.getCenter(new THREE.Vector3());
-  const r = Math.max(size.x, size.z);
-  controls.target.copy(center);
-  camera.position.set(center.x, center.y + r * 0.32, center.z + r * 0.55);
-}
-
-// =====================================================================
-// Info points and text
-// =====================================================================
-function makeHotspot(data) {
-  const col = cyber ? ACCENT.clone().multiplyScalar(1.6) : new THREE.Color(0xf2c96b);
-  const mesh = new THREE.Mesh(new THREE.SphereGeometry(0.28, 24, 16), new THREE.MeshBasicMaterial({ color: col, toneMapped: false }));
-  const halo = new THREE.Mesh(cyber ? new THREE.TorusGeometry(0.55, 0.035, 8, 48) : new THREE.SphereGeometry(0.5, 24, 16),
-    new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: cyber ? 0.9 : 0.3, depthWrite: false, toneMapped: false }));
-  mesh.add(halo);
-  mesh.position.set(...data.position);
-  mesh.userData = { ...data, halo };
-  scene.add(mesh);
-  return mesh;
-}
-
-const panelEl = document.getElementById('panel');
-function showPanel(data) {
-  document.getElementById('panel-title').textContent = data.title;
-  document.getElementById('panel-body').textContent = data.body;
-  panelEl.hidden = false;
-}
-document.getElementById('panel-close').onclick = () => { panelEl.hidden = true; };
-
-// In VR there is no HTML, so the text is drawn on a floating board.
-let vrBoard = null;
-function showVrBoard(hotspot) {
-  if (vrBoard) { scene.remove(vrBoard); vrBoard.material.map.dispose(); }
-  const { title, body } = hotspot.userData;
-  vrBoard = textPlane(1024, 640, 1.6, 1.0, (g, w, h) => {
-    g.fillStyle = 'rgba(11,20,48,0.92)'; g.fillRect(0, 0, w, h);
-    g.strokeStyle = '#d9b26a'; g.lineWidth = 4; g.strokeRect(12, 12, w - 24, h - 24);
-    g.fillStyle = '#d9b26a'; g.font = '600 56px "Cormorant Garamond", serif'; g.fillText(title, 56, 110);
-    g.fillStyle = '#f3ead8'; g.font = '34px "Instrument Sans", sans-serif'; wrapText(g, body, 56, 180, w - 112, 48);
-  });
-  const camPos = camera.getWorldPosition(new THREE.Vector3());
-  const dir = camPos.clone().sub(hotspot.position).setY(0).normalize();
-  vrBoard.position.copy(hotspot.position).addScaledVector(dir, 1.2).setY(Math.max(hotspot.position.y, floorY + 1.6));
-  vrBoard.lookAt(camPos.x, vrBoard.position.y, camPos.z);
-  scene.add(vrBoard);
-}
-
-function textPlane(pw, ph, w, h, draw) {
-  const c = document.createElement('canvas');
-  c.width = pw; c.height = ph;
-  draw(c.getContext('2d'), pw, ph);
-  const tex = new THREE.CanvasTexture(c);
-  tex.colorSpace = THREE.SRGBColorSpace;
-  tex.anisotropy = 8;
-  return new THREE.Mesh(new THREE.PlaneGeometry(w, h), new THREE.MeshBasicMaterial({ map: tex, transparent: true, toneMapped: false }));
-}
-
-function wrapText(g, text, x, y, maxW, lineH) {
-  let line = '';
-  for (const word of text.split(' ')) {
-    const test = line ? `${line} ${word}` : word;
-    if (g.measureText(test).width > maxW && line) { g.fillText(line, x, y); line = word; y += lineH; }
-    else line = test;
-  }
-  g.fillText(line, x, y);
-}
-
-// =====================================================================
-// Input: mouse/touch, VR controllers
-// =====================================================================
 const raycaster = new THREE.Raycaster();
-const pointer = new THREE.Vector2();
-let downAt = null;
-
-function pickTarget() {
-  const spot = raycaster.intersectObjects(hotspotMeshes, false)[0];
-  if (spot) return { hotspot: spot.object };
-  const ex = raycaster.intersectObjects(exhibits, true)[0];
-  if (ex) {
-    let o = ex.object;
-    while (o && !o.userData.siteId) o = o.parent;
-    if (o) return { siteId: o.userData.siteId };
-  }
-  return null;
-}
-
-renderer.domElement.addEventListener('pointerdown', (e) => { downAt = [e.clientX, e.clientY]; });
-renderer.domElement.addEventListener('pointermove', (e) => {
-  if (!exhibits.length && !hotspotMeshes.length) return;
-  pointer.set((e.clientX / window.innerWidth) * 2 - 1, -(e.clientY / window.innerHeight) * 2 + 1);
-  raycaster.setFromCamera(pointer, camera);
-  renderer.domElement.style.cursor = pickTarget() ? 'pointer' : '';
-});
-renderer.domElement.addEventListener('pointerup', (e) => {
-  if (!downAt || Math.hypot(e.clientX - downAt[0], e.clientY - downAt[1]) > 5) return;   // was a drag
-  pointer.set((e.clientX / window.innerWidth) * 2 - 1, -(e.clientY / window.innerHeight) * 2 + 1);
-  raycaster.setFromCamera(pointer, camera);
-  const t = pickTarget();
-  if (t?.hotspot) showPanel(t.hotspot.userData);
-  else if (t?.siteId) location.search = `?site=${t.siteId}`;
-});
-
-document.getElementById('vr-slot').appendChild(VRButton.createButton(renderer));
-
 const tempMatrix = new THREE.Matrix4();
-const teleportMarker = new THREE.Mesh(new THREE.RingGeometry(0.25, 0.32, 32).rotateX(-Math.PI / 2),
-  new THREE.MeshBasicMaterial({ color: 0xf2c96b, toneMapped: false }));
-teleportMarker.visible = false;
-scene.add(teleportMarker);
+const marker = new THREE.Mesh(new THREE.RingGeometry(0.22, 0.3, 40).rotateX(-Math.PI / 2),
+  new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.85, toneMapped: false, depthTest: false }));
+marker.visible = false;
+marker.renderOrder = 10;
+scene.add(marker);
 
+const modelFactory = new XRControllerModelFactory();
 const controllers = [0, 1].map((i) => {
   const ctrl = renderer.xr.getController(i);
   const ray = new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(), new THREE.Vector3(0, 0, -1)]),
-    new THREE.LineBasicMaterial({ color: 0xf2c96b }));
-  ray.scale.z = 15;
+    new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.6 }));
+  ray.scale.z = 12;
   ctrl.add(ray);
+  ctrl.userData.ray = ray;
   ctrl.addEventListener('selectend', () => onVrSelect(ctrl));
   rig.add(ctrl);
+  const grip = renderer.xr.getControllerGrip(i);
+  grip.add(modelFactory.createControllerModel(grip));
+  rig.add(grip);
   return ctrl;
 });
 
-function controllerRay(ctrl) {
+function aim(ctrl) {
   tempMatrix.identity().extractRotation(ctrl.matrixWorld);
   raycaster.ray.origin.setFromMatrixPosition(ctrl.matrixWorld);
   raycaster.ray.direction.set(0, 0, -1).applyMatrix4(tempMatrix);
 }
 
 function onVrSelect(ctrl) {
-  controllerRay(ctrl);
-  const t = pickTarget();
-  if (t?.hotspot) { showVrBoard(t.hotspot); return; }
-  if (t?.siteId) { location.search = `?site=${t.siteId}`; return; }
-  const ground = floor && raycaster.intersectObject(floor, false)[0];
-  if (ground) {
+  aim(ctrl);
+  const action = vrPanel.hit(raycaster);
+  if (action === 'none') return;
+  if (action) {
+    startAudio();
+    if (action === 'prev') tour.goTo(Math.max(0, tour.state.index - 1), true);
+    if (action === 'next') tour.goTo(Math.min(site.chapters.length - 1, tour.state.index + 1), true);
+    if (action === 'play') tour.toggle();
+    return;
+  }
+  const hit = raycaster.intersectObjects(ground, false)[0];
+  if (hit && hit.distance < 40) {
     const head = camera.getWorldPosition(new THREE.Vector3());
-    rig.position.x += ground.point.x - head.x;
-    rig.position.z += ground.point.z - head.z;
+    tour.fadeThen(() => {
+      rig.position.x += hit.point.x - head.x;
+      rig.position.z += hit.point.z - head.z;
+      rig.position.y = hit.point.y;
+    });
   }
 }
 
-let desktopView = null;
+function updateVrAim() {
+  marker.visible = false;
+  for (const ctrl of controllers) {
+    aim(ctrl);
+    const onPanel = vrPanel.hover(raycaster);
+    if (onPanel) continue;
+    const hit = raycaster.intersectObjects(ground, false)[0];
+    if (hit && hit.distance < 40) {
+      marker.position.copy(hit.point).add(new THREE.Vector3(0, 0.03, 0));
+      marker.visible = true;
+    }
+  }
+}
+
 renderer.xr.addEventListener('sessionstart', () => {
-  desktopView = camera.position.clone();
-  controls.enabled = false;
-  rig.position.set(vrStart[0], floorY, vrStart[1]);
-  camera.position.set(0, 0, 0);   // headset supplies the head pose
+  // headsets have far less GPU: thin out grass and shrubs while in VR
+  scene.traverse((o) => { if (o.userData.thinInVr) { o.userData.fullCount ??= o.count; o.count = Math.floor(o.userData.fullCount * 0.4); } });
+  startAudio();
+  ui.intro.classList.add('gone');
+  tour.enterVr();
+  rig.add(vrPanel.mesh);
+  if (tour.state.index < 0) tour.goTo(0, true);
 });
 renderer.xr.addEventListener('sessionend', () => {
-  controls.enabled = true;
-  rig.position.set(0, 0, 0);
-  if (desktopView) camera.position.copy(desktopView);
-  if (vrBoard) { scene.remove(vrBoard); vrBoard = null; }
+  scene.traverse((o) => { if (o.userData.fullCount) o.count = o.userData.fullCount; });
+  rig.remove(vrPanel.mesh);
+  tour.exitVr();
+  ui.chapters.hidden = ui.caption.hidden = ui.controls.hidden = false;
 });
 
-// =====================================================================
-// Page UI
-// =====================================================================
-function setupUi() {
-  const sub = site ? `${site.city} · ${site.place}` : 'Virtual Museum';
-  document.querySelector('.top .sub').textContent = sub;
-  document.title = site ? `MetaOdyssey: ${site.city}, ${site.place}` : 'MetaOdyssey Virtual Museum';
-  document.getElementById('loading').textContent = site ? `Loading ${site.place}…` : 'Opening the museum…';
-  document.querySelector('.hint').textContent = site
-    ? 'Drag to look around · scroll to zoom · click the golden points'
-    : 'Drag to look around · click an exhibit to step inside';
-  document.getElementById('sites').innerHTML =
-    `<a href="./" class="${site ? '' : 'active'}"><b>Museum</b> Hall</a>` +
-    sites.map((x) => `<a href="?site=${x.id}&style=${style}" class="${x.id === site?.id ? 'active' : ''}"><b>${x.city}</b> ${x.place}</a>`).join('') +
-    upcoming.map((x) => `<span class="soon"><b>${x.city}</b> December</span>`).join('');
-  document.getElementById('credits-body').innerHTML = sites.map(({ city, place, credit: c }) =>
-    `<p><b>${city} · ${place}:</b> <a href="${c.url}" target="_blank" rel="noopener">${c.work}</a> by ${c.author}, ${c.license}. Simplified and compressed for web and VR.</p>`
-  ).join('') + '<p>MetaOdyssey · Erasmus+ 2025-3-TR01-KA152-YOU-000382053</p>';
-  document.getElementById('credits-btn').onclick = () => { document.getElementById('credits').hidden = false; };
-  document.querySelector('[data-close="credits"]').onclick = () => { document.getElementById('credits').hidden = true; };
-}
-
-function doneLoading() { document.getElementById('loading').classList.add('done'); }
-
-// =====================================================================
-// Loop
-// =====================================================================
-const clock = new THREE.Clock();
-renderer.setAnimationLoop(() => {
-  const t = clock.getElapsedTime();
-  uTime.value = t;
-  for (const h of hotspotMeshes) h.userData.halo.scale.setScalar(1 + 0.25 * Math.sin(t * 2.5));
-  scene.traverse((o) => {
-    if (o.userData.spin) o.rotation.y = t * 0.15;
-    if (o.userData.rise) o.position.y = (t * 0.4) % (o.userData.rise * 0.2);
-    if (cyber && o.userData.halo) o.userData.halo.lookAt(camera.getWorldPosition(new THREE.Vector3()));
-  });
-
-  if (renderer.xr.isPresenting) {
-    teleportMarker.visible = false;
-    for (const ctrl of controllers) {
-      controllerRay(ctrl);
-      const ground = floor && raycaster.intersectObject(floor, false)[0];
-      if (ground) { teleportMarker.position.copy(ground.point).setY(ground.point.y + 0.02); teleportMarker.visible = true; }
-    }
-  } else {
-    controls.update();
-    if (!site) {   // keep the camera inside the hall
-      camera.position.x = THREE.MathUtils.clamp(camera.position.x, -6.4, 6.4);
-      camera.position.y = THREE.MathUtils.clamp(camera.position.y, 0.6, 6.4);
-      camera.position.z = THREE.MathUtils.clamp(camera.position.z, -14.4, 14.4);
-    }
-  }
-  if (composer && !renderer.xr.isPresenting) composer.render(); else renderer.render(scene, camera);
-});
-
+// ---------- loop ----------
 window.addEventListener('resize', () => {
   camera.aspect = window.innerWidth / window.innerHeight;
   camera.updateProjectionMatrix();
   renderer.setSize(window.innerWidth, window.innerHeight);
-  composer?.setSize(window.innerWidth, window.innerHeight);
 });
 
-// =====================================================================
-// Procedural textures
-// =====================================================================
-// Grass-and-earth patches plus fine grain, roughly neutral around 1.0 so the colour comes from the material.
-function terrainTexture() {
-  const s = 1024, c = document.createElement('canvas');
-  c.width = c.height = s;
-  const g = c.getContext('2d');
-  g.fillStyle = 'rgb(232,232,232)'; g.fillRect(0, 0, s, s);
-  for (let i = 0; i < 420; i++) {
-    const x = Math.random() * s, y = Math.random() * s, r = 20 + Math.random() * 110;
-    const light = Math.random() < 0.5;
-    const tint = light ? '255,250,235' : '170,175,150';
-    for (const [dx, dy] of [[0, 0], [s, 0], [-s, 0], [0, s], [0, -s]]) {   // wrap so the tile repeats seamlessly
-      const grd = g.createRadialGradient(x + dx, y + dy, 0, x + dx, y + dy, r);
-      grd.addColorStop(0, `rgba(${tint},0.22)`); grd.addColorStop(1, `rgba(${tint},0)`);
-      g.fillStyle = grd; g.fillRect(x + dx - r, y + dy - r, r * 2, r * 2);
-    }
-  }
-  const img = g.getImageData(0, 0, s, s);
-  for (let i = 0; i < img.data.length; i += 4) {
-    const n = (Math.random() - 0.5) * 26;
-    img.data[i] += n; img.data[i + 1] += n; img.data[i + 2] += n;
-  }
-  g.putImageData(img, 0, 0);
-  const tex = new THREE.CanvasTexture(c);
-  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
-  tex.colorSpace = THREE.SRGBColorSpace;
-  tex.anisotropy = 8;
-  return tex;
-}
+const clock = new THREE.Clock();
+renderer.setAnimationLoop(() => {
+  const dt = Math.min(clock.getDelta(), 0.1);
+  const t = clock.elapsedTime;
+  uTime.value = t;
+  for (const a of animators) a(t);
+  tour.update(dt, t);
+  if (renderer.xr.isPresenting) updateVrAim();
+  else controls.update();
+  renderer.render(scene, camera);
+});
 
-function noiseTexture() {
-  const s = 256, c = document.createElement('canvas');
-  c.width = c.height = s;
-  const g = c.getContext('2d'), img = g.createImageData(s, s);
-  for (let i = 0; i < s * s; i++) {
-    const v = 225 + Math.random() * 30;
-    img.data.set([v, v, v, 255], i * 4);
-  }
-  g.putImageData(img, 0, 0);
-  const tex = new THREE.CanvasTexture(c);
-  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
-  tex.colorSpace = THREE.SRGBColorSpace;
-  return tex;
-}
+// The intro shows a slow aerial view while everything loads.
+tour.preview();
+applyLang();
+buildWorld().then(() => {
+  ui.start.disabled = false;
+  ui.start.textContent = STRINGS[lang].start;
+  document.body.classList.add('ready');
+}).catch((e) => {
+  console.error(e);
+  failed = true;
+  ui.start.textContent = 'Error: ' + e.message;
+});
 
-function marbleTexture() {
-  const s = 1024, c = document.createElement('canvas');
-  c.width = c.height = s;
-  const g = c.getContext('2d');
-  g.fillStyle = '#e9e2d4'; g.fillRect(0, 0, s, s);
-  for (let i = 0; i < 26; i++) {   // soft grey veins
-    g.strokeStyle = `rgba(120,110,95,${0.04 + Math.random() * 0.08})`;
-    g.lineWidth = 1 + Math.random() * 3;
-    g.beginPath();
-    let x = Math.random() * s, y = Math.random() * s;
-    g.moveTo(x, y);
-    for (let k = 0; k < 12; k++) { x += (Math.random() - 0.3) * 120; y += (Math.random() - 0.5) * 120; g.lineTo(x, y); }
-    g.stroke();
-  }
-  g.strokeStyle = 'rgba(90,80,70,0.25)'; g.lineWidth = 3;   // tile joints
-  g.strokeRect(0, 0, s, s);
-  const tex = new THREE.CanvasTexture(c);
-  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
-  tex.colorSpace = THREE.SRGBColorSpace;
-  tex.anisotropy = 8;
-  return tex;
-}

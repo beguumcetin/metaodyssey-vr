@@ -1,3 +1,5 @@
 models/raw/
 .DS_Store
 node_modules/
+references/
+assets/raw/

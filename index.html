@@ -3,9 +3,9 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>MetaOdyssey Virtual Museum: Ephesus</title>
+  <title>MetaOdyssey · Ephesus</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link href="https://fonts.googleapis.com/css2?family=Cinzel+Decorative:wght@700&family=Cormorant+Garamond:ital,wght@0,500;1,500&family=Instrument+Sans:wght@400;600&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,500;1,400&family=Instrument+Sans:wght@400;500;600&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="src/style.css">
   <script type="importmap">
   {
@@ -18,25 +18,46 @@
 </head>
 <body>
   <div id="app"></div>
+  <div class="shade"></div>
 
-  <header class="top">
-    <h1>MetaOdyssey</h1>
-    <p class="sub">Virtual Museum</p>
+  <header class="brand">
+    <span class="mark">MetaOdyssey</span>
+    <span class="where" id="where"></span>
   </header>
-  <nav id="sites" class="sites"></nav>
 
-  <div id="loading" class="loading">Opening the museum…</div>
+  <div class="lang" role="group" aria-label="Language">
+    <button data-lang="tr">TR</button><button data-lang="en">EN</button>
+  </div>
 
-  <aside id="panel" class="panel" hidden>
-    <button id="panel-close" class="panel-close" aria-label="Close">×</button>
-    <h2 id="panel-title"></h2>
-    <p id="panel-body"></p>
-  </aside>
+  <section id="intro" class="intro">
+    <p class="eyebrow" id="eyebrow"></p>
+    <h1 id="intro-title"></h1>
+    <p class="intro-sub" id="intro-sub"></p>
+    <div class="intro-actions">
+      <button id="start" class="primary" disabled>Loading</button>
+      <button id="explore" class="ghost"></button>
+      <button class="ghost vr-btn" hidden>VR</button>
+    </div>
+  </section>
 
-  <footer class="bottom">
-    <span class="hint">Drag to look around · scroll to zoom · click the golden points</span>
-    <span id="vr-slot"></span>
-    <button id="credits-btn" class="link">Credits</button>
+  <nav id="chapters" class="chapters" hidden></nav>
+
+  <div id="caption" class="caption" hidden>
+    <p class="caption-title" id="caption-title"></p>
+    <p class="caption-text" id="caption-text"></p>
+  </div>
+
+  <footer id="controls" class="controls" hidden>
+    <div class="transport">
+      <button id="prev" aria-label="Previous chapter">‹</button>
+      <button id="play" class="play" aria-label="Pause">❚❚</button>
+      <button id="next" aria-label="Next chapter">›</button>
+    </div>
+    <div class="extras">
+      <button id="sound" class="text"></button>
+      <button class="text vr-btn" hidden>VR</button>
+      <button id="credits-btn" class="text"></button>
+    </div>
   </footer>
 
   <aside id="credits" class="panel" hidden>
