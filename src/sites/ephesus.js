@@ -16,6 +16,7 @@ export const ephesus = {
   hall: [-9.4, 6.6, -11, -0.6, 15.5],
   credits: [
     { work: 'Library of Celsus – Crowdsourced photogrammetry', author: 'Miguel Bandera', url: 'https://sketchfab.com/3d-models/library-of-celsus-crowdsourced-photogrammetry-1cc6ad6af508422398f60f902cb70e88', license: 'CC BY 4.0' },
+    { work: 'Narration voices (Cavit, George)', author: 'ElevenLabs', url: 'https://elevenlabs.io', license: 'Generated with ElevenLabs' },
     { work: 'Sky, ground textures, shrubs, grass and rocks', author: 'Poly Haven', url: 'https://polyhaven.com', license: 'CC0' },
   ],
   chapters: [
