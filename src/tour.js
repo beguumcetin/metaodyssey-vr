@@ -40,18 +40,65 @@ export function createTour({ site, camera, controls, rig, renderer, getLang, isM
   };
   if ('speechSynthesis' in window) speechSynthesis.onvoiceschanged = () => {};
 
+  // Recorded narration (e.g. made with ElevenLabs) lives at assets/voice/<lang>/<01..>.mp3, one file per chapter.
+  // When a file exists it is played instead of the browser's speech voice.
+  const recordings = {};
+  const audio = new Audio();
+  audio.preload = 'auto';
+  async function recordingFor(lang, i) {
+    const key = `${lang}/${i}`;
+    if (!(key in recordings)) {
+      const url = `assets/voice/${lang}/${String(i + 1).padStart(2, '0')}.mp3`;
+      recordings[key] = fetch(url, { method: 'HEAD' }).then((r) => (r.ok ? url : null)).catch(() => null);
+    }
+    return recordings[key];
+  }
+
+  function playRecording(id, url) {
+    const sentences = narration.sentences;
+    // subtitles follow the audio: each sentence gets a share of the time in proportion to its length
+    const total = sentences.reduce((a, s) => a + s.length, 0);
+    const ends = [];
+    sentences.reduce((a, s) => { ends.push((a + s.length) / total); return a + s.length; }, 0);
+    audio.src = url;
+    audio.currentTime = 0;
+    audio.ontimeupdate = () => {
+      if (!narration || narration.id !== id || !audio.duration) return;
+      const f = audio.currentTime / audio.duration;
+      const k = Math.min(ends.findIndex((e) => f < e + 0.01), sentences.length - 1);
+      const text = sentences[k < 0 ? sentences.length - 1 : k];
+      if (text !== state.sentence) { state.sentence = text; emit(); }
+    };
+    audio.onended = () => {
+      if (!narration || narration.id !== id) return;
+      narration.done = true;
+      narration.doneAt = now;
+    };
+    state.sentence = sentences[0];
+    emit();
+    audio.play().catch(() => speak(id));   // autoplay blocked or file broken: fall back to speech
+  }
+
   const sentencesOf = (i) => site.chapters[i].text[getLang()].split(/(?<=[.!?])\s+/);
 
   function stopVoice() {
     if (narration) { clearTimeout(narration.timer); clearTimeout(narration.safety); }
     if ('speechSynthesis' in window) speechSynthesis.cancel();
+    audio.pause();
+    audio.ontimeupdate = audio.onended = null;
   }
 
   function startNarration(i, delay) {
     stopVoice();
     const id = ++token;
     narration = { id, sentences: sentencesOf(i), i: 0, done: false, doneAt: 0 };
-    narration.timer = setTimeout(() => speak(id), delay * 1000);
+    const ready = recordingFor(getLang(), i);
+    narration.timer = setTimeout(async () => {
+      const url = await ready;
+      if (!narration || narration.id !== id || !state.playing) return;
+      if (url && !isMuted()) playRecording(id, url);
+      else speak(id);
+    }, delay * 1000);
   }
 
   function speak(id) {
@@ -228,13 +275,9 @@ export function createTour({ site, camera, controls, rig, renderer, getLang, isM
       emit();
     },
     refreshVoice() {
-      if (state.playing && narration) {
-        const i = Math.min(narration.i, sentencesOf(state.index).length - 1);
-        stopVoice();
-        const id = ++token;
-        narration = { id, sentences: sentencesOf(state.index), i, done: false, doneAt: 0 };
-        speak(id);
-      } else emit();
+      // language or sound changed: start the chapter's narration again with the right voice
+      if (state.playing && narration) startNarration(state.index, 0.3);
+      else emit();
     },
     enterVr() {
       inVr = true;

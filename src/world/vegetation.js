@@ -151,11 +151,11 @@ export function addTrees(scene) {
   const pines = scatter(1100, 11, [50, 650], (x, z, r) =>
     !onPaving(x, z, 10) && slope(x, z) < 1.0 && fbm(x * 0.012, z * 0.012) > 0.36 + r() * 0.12, [0.8, 1.4]);
   const cypresses = [
-    ...scatter(14, 12, [30, 160], (x, z) => !onPaving(x, z, 5) && onPaving(x, z, 14), [0.85, 1.25]),
+    ...scatter(14, 12, [30, 160], (x, z) => !onPaving(x, z, 7.5) && onPaving(x, z, 16), [0.85, 1.25]),
     ...scatter(25, 13, [60, 400], (x, z, r) => !onPaving(x, z, 8) && fbm(x * 0.03 + 5, z * 0.03) > 0.6, [0.9, 1.3]),
   ];
   const olives = scatter(140, 14, [30, 320], (x, z, r) =>
-    !onPaving(x, z, 6) && heightAt(x, z) < 25 && fbm(x * 0.02 + 2, z * 0.02 + 8) > 0.45, [0.8, 1.3]);
+    !onPaving(x, z, 7.5) && heightAt(x, z) < 25 && fbm(x * 0.02 + 2, z * 0.02 + 8) > 0.45, [0.8, 1.3]);
 
   const dist = (m) => new THREE.Vector3().setFromMatrixPosition(m).length();
   const near = (list) => list.filter((m) => dist(m) < 70);

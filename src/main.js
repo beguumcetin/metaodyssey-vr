@@ -7,6 +7,9 @@ import { XRControllerModelFactory } from 'three/addons/webxr/XRControllerModelFa
 import { addSky, addSun, addTerrain, addPaving } from './world/landscape.js';
 import { addTrees, addGroundCover } from './world/vegetation.js';
 import { addRuins } from './world/ruins.js';
+import { addCity } from './world/city.js';
+import { addCelsus } from './world/celsus.js';
+import { addPeople } from './world/people.js';
 import { addBirds, addDust } from './world/life.js';
 import { patchMaterial, uTime } from './world/shaders.js';
 import { createAmbience } from './audio.js';
@@ -54,16 +57,37 @@ const ground = [];   // surfaces the VR visitor can teleport onto
 const animators = [];
 const ambience = createAmbience();
 
+// The library can be shown as it was (modelled) or as it is today (the photogrammetry scan).
+let ancient = null, today = null, ruins = null;
+let era = params.get('era') === 'today' ? 'today' : 'ancient';
+function setEra(e) {
+  era = e;
+  if (ancient) ancient.visible = era === 'ancient';
+  if (today) today.visible = era === 'today';
+  if (ruins) ruins.visible = era === 'today';
+  const b = document.getElementById('era');
+  if (b) b.textContent = STRINGS[lang][era === 'ancient' ? 'showToday' : 'showAncient'];
+}
+
 async function buildWorld() {
   await addSky(scene, renderer, manager);
   addSun(scene);
   ground.push(addTerrain(scene, manager));
   addPaving(scene, manager);
   scene.traverse((o) => { if (o.name === 'paving') ground.push(o); });
-  addRuins(scene, manager);
+  ruins = new THREE.Group();
+  addRuins(ruins, manager);
+  scene.add(ruins);
   addTrees(scene);
   animators.push(addBirds(scene), addDust(scene));
+  const celsus = addCelsus(scene, manager);
+  ground.push(celsus.userData.walkable);
+  ancient = new THREE.Group().add(celsus);
+  addCity(ancient, manager);
+  scene.add(ancient);
+  animators.push(addPeople(celsus));
   await Promise.all([loadScan(), addGroundCover(scene, gltfLoader)]);
+  setEra(era);
 }
 
 async function loadScan() {
@@ -90,7 +114,8 @@ async function loadScan() {
       });
     }
   });
-  scene.add(object, makeHall(site.hall));
+  today = new THREE.Group().add(object, makeHall(site.hall));
+  scene.add(today);
   window.__scan = object;   // handy for inspecting from the console
 }
 
@@ -126,18 +151,24 @@ const ui = {
   sound: document.getElementById('sound'),
 };
 
+window.__camera = camera; window.__controls = controls;
 const vrPanel = createVrPanel();
 vrPanel.setChapters(site.chapters);
 const tour = createTour({
   site, camera, controls, rig, renderer,
   getLang: () => lang,
   isMuted: () => ambience.muted,
-  onChange: (state) => { renderUi(state); vrPanel.update(state, lang); },
+  onChange: (state) => {
+    // some chapters are about the ruin as it stands today
+    const ch = site.chapters[state.index];
+    if (ch && ch.era && ch.era !== era) setEra(ch.era);
+    renderUi(state); vrPanel.update(state, lang);
+  },
 });
 
 const STRINGS = {
-  en: { start: 'Start the tour', explore: 'Explore freely', loading: 'Loading', sound: 'Sound', mute: 'Muted', credits: 'Credits', end: 'Explore freely: drag to look around, scroll to zoom.', eyebrow: 'MetaOdyssey · Virtual Museum' },
-  tr: { start: 'Turu başlat', explore: 'Serbest gez', loading: 'Yükleniyor', sound: 'Ses', mute: 'Sessiz', credits: 'Kaynaklar', end: 'Serbest gezinti: sürükleyerek etrafa bak, tekerlekle yaklaş.', eyebrow: 'MetaOdyssey · Sanal Müze' },
+  en: { start: 'Start the tour', explore: 'Explore freely', loading: 'Loading', sound: 'Sound', mute: 'Muted', credits: 'Credits', showToday: 'See it today', showAncient: 'See it in AD 120', end: 'Explore freely: drag to look around, scroll to zoom.', eyebrow: 'MetaOdyssey · Virtual Museum' },
+  tr: { start: 'Turu başlat', explore: 'Serbest gez', loading: 'Yükleniyor', sound: 'Ses', mute: 'Sessiz', credits: 'Kaynaklar', showToday: 'Bugünkü hâli', showAncient: 'MS 120’deki hâli', end: 'Serbest gezinti: sürükleyerek etrafa bak, tekerlekle yaklaş.', eyebrow: 'MetaOdyssey · Sanal Müze' },
 };
 
 function renderUi(state) {
@@ -164,6 +195,7 @@ function applyLang() {
   ui.explore.textContent = s.explore;
   if (!ui.start.disabled) ui.start.textContent = s.start;
   document.getElementById('credits-btn').textContent = s.credits;
+  setEra(era);
   document.querySelectorAll('[data-lang]').forEach((b) => b.classList.toggle('on', b.dataset.lang === lang));
   document.title = `MetaOdyssey · ${site.city[lang]}`;
   renderUi(tour.state);
@@ -186,6 +218,7 @@ ui.prev.onclick = () => tour.goTo(Math.max(0, tour.state.index - 1), true);
 ui.next.onclick = () => tour.goTo(Math.min(site.chapters.length - 1, tour.state.index + 1), true);
 ui.sound.onclick = () => { ambience.setMuted(!ambience.muted); tour.refreshVoice(); renderUi(tour.state); };
 document.querySelectorAll('[data-lang]').forEach((b) => { b.onclick = () => { lang = b.dataset.lang; applyLang(); tour.refreshVoice(); }; });
+document.getElementById('era').onclick = () => setEra(era === 'ancient' ? 'today' : 'ancient');
 document.getElementById('credits-btn').onclick = () => { document.getElementById('credits').hidden = false; };
 document.querySelector('[data-close="credits"]').onclick = () => { document.getElementById('credits').hidden = true; };
 document.getElementById('credits-body').innerHTML = site.credits.map((c) =>

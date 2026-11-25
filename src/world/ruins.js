@@ -8,7 +8,7 @@ import { patchMaterial } from './shaders.js';
 
 const R = 0.38;   // column radius (m)
 
-function fluted(h, r0, r1, broken, seed) {
+export function fluted(h, r0, r1, broken, seed) {
   const g = new THREE.CylinderGeometry(r1, r0, h, 48, Math.max(2, Math.round(h * 2)), false);
   g.translate(0, h / 2, 0);
   const p = g.attributes.position;
@@ -25,7 +25,7 @@ function fluted(h, r0, r1, broken, seed) {
   return g;
 }
 
-function base() {
+export function base() {
   const plinth = new RoundedBoxGeometry(1.05, 0.28, 1.05, 2, 0.03).translate(0, 0.14, 0);
   const torus = new THREE.CylinderGeometry(0.47, 0.5, 0.16, 40).translate(0, 0.36, 0);
   const scotia = new THREE.CylinderGeometry(0.42, 0.44, 0.1, 40).translate(0, 0.49, 0);
@@ -40,12 +40,12 @@ function capital() {
   return [echinus, abacus, volL, volR].map((g) => g.index ? g.toNonIndexed() : g);
 }
 
-function strip(g) {   // keep only position/normal/uv so parts can merge
+export function strip(g) {   // keep only position/normal/uv so parts can merge
   for (const k of Object.keys(g.attributes)) if (!['position', 'normal', 'uv'].includes(k)) g.deleteAttribute(k);
   return g.index ? g.toNonIndexed() : g;
 }
 
-function fullColumn() {
+export function fullColumn() {
   const shaft = fluted(5.6, R, R * 0.86, false, 0).translate(0, 0.54, 0);
   const cap = capital().map((g) => g.translate(0, 6.14, 0));
   return mergeGeometries([...base(), shaft, ...cap].map(strip));
@@ -55,7 +55,7 @@ function stumpShaft(seed) {
   return strip(fluted(1, R, R * 0.97, true, seed));
 }
 
-function marble(manager) {
+export function marble(manager) {
   const loader = new THREE.TextureLoader(manager);
   const map = loader.load('assets/tex/marble_01_diff.jpg');
   map.colorSpace = THREE.SRGBColorSpace;
