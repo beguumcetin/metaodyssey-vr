@@ -133,6 +133,57 @@ function wallBlocks(openings, x0, x1, y0, y1) {
   return blocks;
 }
 
+// Fills the two upper corners of a rectangular opening outside a half circle, making it an arch.
+function archFill(cx, hw, springY, z0, z1) {
+  const top = hw + 0.15;
+  const fill = new THREE.Shape();
+  fill.moveTo(-hw, 0); fill.lineTo(-hw, top); fill.lineTo(hw, top); fill.lineTo(hw, 0); fill.absarc(0, 0, hw, 0, Math.PI, false);
+  return extrude(fill, z0, z1).translate(cx, springY, 0);
+}
+
+function inscriptionTexture() {
+  const c = document.createElement('canvas');
+  c.width = 2048; c.height = 256;
+  const x = c.getContext('2d');
+  x.fillStyle = '#e9e1d2'; x.fillRect(0, 0, 2048, 256);
+  x.fillStyle = '#b88a35';
+  x.font = '600 52px "Times New Roman", serif';
+  x.textAlign = 'center'; x.textBaseline = 'middle';
+  // the dedication to Augustus and his family, in bronze letters (Latin line of the bilingual text)
+  x.fillText('IMP · CAESARI · DIVI · F · AVGVSTO · PONTIFICI · MAXIMO · COS · XII · TRIBVNIC · POTEST · XX', 1024, 84);
+  x.fillText('ET · LIVIAE · CAESARIS · AVGVSTI · MAZAEVS · ET · MITHRIDATES · PATRONIS', 1024, 176);
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  t.anisotropy = 8;
+  return t;
+}
+
+// The Gate of Mazaeus and Mithridates (3 BC), three arches into the commercial agora, right of the library.
+function addGate(out, group) {
+  const X0 = 11.2, X1 = 20.2, Z0 = 0.8, Z1 = 3.2, H = 6.0;
+  const arches = [[12.7, 0.95, 3.3], [15.7, 1.5, 3.9], [18.7, 0.95, 3.3]];   // centre, half width, springing height
+  out.marble.push(box(X0 - 0.15, X1 + 0.15, 0, 0.3, Z0 - 0.15, Z1 + 0.2));
+  const holes = arches.map(([cx, hw, sy]) => [cx - hw, cx + hw, -1, sy + hw + 0.15]);
+  for (const b of wallBlocks(holes, X0, X1, 0.3, H)) out.wall.push(worldUV(box(b[0], b[1], b[2], b[3], Z0, Z1), 3));
+  for (const [cx, hw, sy] of arches) {
+    out.wall.push(worldUV(archFill(cx, hw, sy, Z0, Z1), 3));
+    // moulded archivolt around each arch
+    const ring = new THREE.Shape();
+    ring.absarc(0, 0, hw + 0.22, 0, Math.PI, false); ring.lineTo(-hw, 0); ring.absarc(0, 0, hw, Math.PI, 0, true); ring.closePath();
+    out.marble.push(extrude(ring, Z1, Z1 + 0.08).translate(cx, sy, 0));
+    out.gold.push(box(cx - 0.12, cx + 0.12, sy + hw - 0.05, sy + hw + 0.25, Z1 + 0.02, Z1 + 0.14));   // keystone
+  }
+  // half columns on the piers
+  for (const x of [11.47, 13.92, 17.47, 19.92]) out.marble.push(column(x, 0.3, Z1 + 0.05, 0.62, H - 0.3 - 1.3 * 0.62));
+  const top = entablature(out, X0, X1, Z0, Z1 + 0.35, H, 0.8, true);
+  // the attic that carries the dedication
+  out.marble.push(box(X0 + 0.1, X1 - 0.1, top, top + 1.35, Z0 + 0.1, Z1 + 0.2), box(X0, X1, top + 1.35, top + 1.55, Z0, Z1 + 0.32));
+  const text = new THREE.Mesh(new THREE.PlaneGeometry(X1 - X0 - 0.6, 1.1), new THREE.MeshStandardMaterial({ map: inscriptionTexture(), roughness: 0.55 }));
+  text.position.set((X0 + X1) / 2, top + 0.68, Z1 + 0.21);
+  text.receiveShadow = true;
+  group.add(text);
+}
+
 function doorFrame(out, x0, x1, y0, y1) {
   const t = 0.2;
   out.marble.push(box(x0 - t, x0, y0, y1 + t, -0.02, 0.1), box(x1, x1 + t, y0, y1 + t, -0.02, 0.1), box(x0 - t - 0.1, x1 + t + 0.1, y1, y1 + 0.26, -0.02, 0.16));
@@ -296,6 +347,7 @@ export function addCelsus(scene, manager) {
 
   const group = new THREE.Group();
   group.name = 'celsus';
+  addGate(out, group);
   for (const [k, list] of Object.entries(out)) {
     if (!list.length) continue;
     const geo = mergeGeometries(list.map((g) => (k === 'marble' || k === 'side' ? worldUV(g, 3) : g)));

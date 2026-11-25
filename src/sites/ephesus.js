@@ -78,8 +78,8 @@ export const ephesus = {
         en: 'To the right stands a triple gateway. Two freed slaves, Mazaeus and Mithridates, dedicated it to Emperor Augustus and his family around 3 BC. It led into the commercial agora, the busy market of the city.',
         tr: 'Sağda üç kemerli bir kapı duruyor. Azat edilmiş iki köle, Mazeus ve Mithridates, onu MÖ 3 civarında İmparator Augustus ve ailesine adadı. Kapı, kentin kalabalık pazar yeri olan ticari agoraya açılıyordu.',
       },
-      camera: { position: [13.5, 3.2, 20], target: [8.5, 5.5, 5] },
-      vr: [13, 15],
+      camera: { position: [22, 3.0, 19], target: [15.7, 5, 2.5] },
+      vr: [17, 12],
     },
     {
       title: { en: 'Ephesus Today', tr: 'Bugün Efes' },
