@@ -1,4 +1,5 @@
-// MetaOdyssey virtual museum: a living Ephesus with a narrated tour, on desktop and in WebXR headsets.
+// MetaOdyssey virtual museum: living ancient cities with a narrated tour, on desktop and in WebXR headsets.
+// ?site=ephesus | sardis | aigai picks the city.
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
@@ -8,16 +9,18 @@ import { addSky, addSun, addTerrain, addPaving } from './world/landscape.js';
 import { addTrees, addGroundCover } from './world/vegetation.js';
 import { addRuins } from './world/ruins.js';
 import { addCity } from './world/city.js';
-import { addCelsus } from './world/celsus.js';
 import { addPeople } from './world/people.js';
 import { addBirds, addDust } from './world/life.js';
 import { patchMaterial, uTime } from './world/shaders.js';
 import { createAmbience } from './audio.js';
-import { ephesus as site } from './sites/ephesus.js';
+import { configureLayout } from './world/layout.js';
+import { SITES, loadSite } from './sites/index.js';
 import { createTour } from './tour.js';
 import { createVrPanel } from './vr-panel.js';
 
 const params = new URLSearchParams(location.search);
+const site = await loadSite(params.get('site'));
+configureLayout(site.layout);   // must run before anything is placed on the ground
 // The museum is in English; ?lang=tr still opens the Turkish version.
 let lang = params.get('lang') === 'tr' ? 'tr' : 'en';
 
@@ -66,27 +69,31 @@ function setEra(e) {
   if (today) today.visible = era === 'today';
   if (ruins) ruins.visible = era === 'today';
   const b = document.getElementById('era');
+  if (b) b.hidden = !site.model;   // only sites with a scan of the ruin have a "today" view
   if (b) b.textContent = STRINGS[lang][era === 'ancient' ? 'showToday' : 'showAncient'];
 }
 
 async function buildWorld() {
   await addSky(scene, renderer, manager);
-  addSun(scene);
-  ground.push(addTerrain(scene, manager));
-  addPaving(scene, manager);
+  addSun(scene, site.sun);
+  ground.push(addTerrain(scene, manager, site.terrain));
+  addPaving(scene, manager, site.paving);
   scene.traverse((o) => { if (o.name === 'paving') ground.push(o); });
-  ruins = new THREE.Group();
-  addRuins(ruins, manager);
-  scene.add(ruins);
+  if (site.model) {   // ruined streets only go with a scan of the site today
+    ruins = new THREE.Group();
+    addRuins(ruins, manager);
+    scene.add(ruins);
+  }
   addTrees(scene);
   animators.push(addBirds(scene), addDust(scene));
-  const celsus = addCelsus(scene, manager);
-  ground.push(celsus.userData.walkable);
-  ancient = new THREE.Group().add(celsus);
-  addCity(ancient, manager);
+  // the site's own monuments, as they stood in antiquity
+  const built = site.build(scene, manager);
+  ground.push(...built.walkable);
+  ancient = new THREE.Group().add(built.group);
+  if (site.stoas !== false) addCity(ancient, manager, site.stoas);
   scene.add(ancient);
-  animators.push(addPeople(celsus));
-  await Promise.all([loadScan(), addGroundCover(scene, gltfLoader)]);
+  animators.push(addPeople(built.group, site.people), ...(built.animators || []));
+  await Promise.all([site.model ? loadScan() : null, addGroundCover(scene, gltfLoader)]);
   setEra(era);
 }
 
@@ -184,6 +191,10 @@ function renderUi(state) {
   ui.sound.textContent = ambience.muted ? s.mute : s.sound;
   ui.sound.classList.toggle('off', ambience.muted);
 }
+
+// city tabs on the intro screen; each city is its own page (?site=...)
+document.getElementById('cities').innerHTML = SITES.map((c) =>
+  `<a href="?site=${c.id}${lang === 'tr' ? '&lang=tr' : ''}" class="${c.id === site.id ? 'on' : ''}">${c.city[lang]}</a>`).join('');
 
 function applyLang() {
   const s = STRINGS[lang];

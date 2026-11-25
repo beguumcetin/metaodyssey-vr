@@ -12,11 +12,11 @@ const UPPER = [-5.2, 0, 5.2];           // upper pairs stand over the gaps (the 
 const COL_Z = 1.45;
 const HALL_BACK = -13;
 
-const box = (x0, x1, y0, y1, z0, z1) =>
+export const box = (x0, x1, y0, y1, z0, z1) =>
   strip(new THREE.BoxGeometry(x1 - x0, y1 - y0, z1 - z0).translate((x0 + x1) / 2, (y0 + y1) / 2, (z0 + z1) / 2));
 
 // Planar UVs from world position, so the marble grain has the same scale on every block.
-function worldUV(g, size) {
+export function worldUV(g, size) {
   const p = g.attributes.position, n = g.attributes.normal;
   const uv = new Float32Array(p.count * 2);
   for (let i = 0; i < p.count; i++) {
@@ -69,7 +69,7 @@ function column(x, y, z, s, shaft) {
 const columnHeight = (s, shaft) => (0.54 + 0.76) * s + shaft;
 
 // Architrave, frieze, dentils and cornice. Returns the height of its top.
-function entablature(out, x0, x1, z0, z1, y, s, sides) {
+export function entablature(out, x0, x1, z0, z1, y, s, sides) {
   const o = 0.035 * s;
   for (let k = 0; k < 3; k++) out.marble.push(box(x0 - (sides ? k * o : 0), x1 + (sides ? k * o : 0), y + k * 0.18 * s, y + (k + 1) * 0.18 * s, z0, z1 + k * o));
   const fy = y + 0.55 * s, fh = 0.45 * s;
@@ -88,24 +88,24 @@ function entablature(out, x0, x1, z0, z1, y, s, sides) {
   return cy + 0.24 * s;
 }
 
-function triangle(w, h) {
+export function triangle(w, h) {
   const s = new THREE.Shape();
   s.moveTo(-w / 2, 0); s.lineTo(w / 2, 0); s.lineTo(0, h); s.closePath();
   return s;
 }
 
-function segment(w, h) {
+export function segment(w, h) {
   const R = (w * w / 4 + h * h) / (2 * h), cy = h - R, a = Math.atan2(-cy, w / 2);
   const s = new THREE.Shape();
   s.moveTo(w / 2, 0); s.absarc(0, cy, R, a, Math.PI - a, false); s.closePath();
   return s;
 }
 
-function extrude(shape, z0, z1) {
+export function extrude(shape, z0, z1) {
   return strip(new THREE.ExtrudeGeometry(shape, { depth: z1 - z0, bevelEnabled: false, curveSegments: 28 }).translate(0, 0, z0));
 }
 
-function pediment(out, cx, y, w, curved, z0, z1) {
+export function pediment(out, cx, y, w, curved, z0, z1) {
   const h = curved ? 1.35 : 1.25;
   const outer = curved ? segment(w, h) : triangle(w, h);
   const inner = curved ? segment(w - 0.7, h - 0.32) : triangle(w - 0.9, h - 0.4);
@@ -120,7 +120,7 @@ function pediment(out, cx, y, w, curved, z0, z1) {
 
 // Cover a rectangle with boxes, leaving the given openings [x0, x1, y0, y1] empty.
 // (A single shape with many holes triangulates badly, so the wall is built from blocks.)
-function wallBlocks(openings, x0, x1, y0, y1) {
+export function wallBlocks(openings, x0, x1, y0, y1) {
   const xs = [...new Set([x0, x1, ...openings.flatMap((o) => [o[0], o[1]])])].sort((a, b) => a - b);
   const blocks = [];
   for (let i = 0; i < xs.length - 1; i++) {
@@ -134,7 +134,7 @@ function wallBlocks(openings, x0, x1, y0, y1) {
 }
 
 // Fills the two upper corners of a rectangular opening outside a half circle, making it an arch.
-function archFill(cx, hw, springY, z0, z1) {
+export function archFill(cx, hw, springY, z0, z1) {
   const top = hw + 0.15;
   const fill = new THREE.Shape();
   fill.moveTo(-hw, 0); fill.lineTo(-hw, top); fill.lineTo(hw, top); fill.lineTo(hw, 0); fill.absarc(0, 0, hw, 0, Math.PI, false);
@@ -184,13 +184,13 @@ function addGate(out, group) {
   group.add(text);
 }
 
-function doorFrame(out, x0, x1, y0, y1) {
+export function doorFrame(out, x0, x1, y0, y1) {
   const t = 0.2;
   out.marble.push(box(x0 - t, x0, y0, y1 + t, -0.02, 0.1), box(x1, x1 + t, y0, y1 + t, -0.02, 0.1), box(x0 - t - 0.1, x1 + t + 0.1, y1, y1 + 0.26, -0.02, 0.16));
 }
 
 // A draped figure in the old painted manner. Each virtue gets its own robe colour.
-function statue(robeColor, seed) {
+export function statue(robeColor, seed) {
   const pts = [[0, 0], [0.33, 0], [0.35, 0.06], [0.32, 0.35], [0.3, 0.8], [0.27, 1.18], [0.24, 1.42], [0.29, 1.6], [0.26, 1.74], [0.16, 1.84], [0.06, 1.88], [0.055, 1.97], [0, 1.97]]
     .map(([r, y]) => new THREE.Vector2(r, y));
   const robe = new THREE.LatheGeometry(pts, 40);
@@ -246,7 +246,7 @@ function friezeTexture() {
 }
 
 // Faint ashlar joints: horizontal courses with staggered vertical joints.
-const JOINTS = (course, length) => (sh) => {
+export const JOINTS = (course, length) => (sh) => {
   sh.fragmentShader = sh.fragmentShader.replace('#include <opaque_fragment>', `#include <opaque_fragment>
   {
     float row = floor(vWorld.y / ${course.toFixed(2)});
@@ -257,7 +257,8 @@ const JOINTS = (course, length) => (sh) => {
   }`);
 };
 
-export function addCelsus(scene, manager) {
+// Shared materials for modelled monuments (Celsus, the gate, the temples of Sardis and Aigai).
+export function makeMaterials(manager) {
   const loader = new THREE.TextureLoader(manager);
   const marbleMap = loader.load('assets/tex/marble_01_diff.jpg');
   marbleMap.colorSpace = THREE.SRGBColorSpace;
@@ -278,7 +279,26 @@ export function addCelsus(scene, manager) {
     } }),
     interior: new THREE.MeshBasicMaterial({ color: 0x2b1f16, side: THREE.BackSide }),   // unlit: a dim hall seen from the sunny square
   };
-  const out = { marble: [], wall: [], frieze: [], paint: [], tympanum: [], niche: [], gold: [], side: [], roof: [] };
+  return mats;
+}
+
+export const newParts = () => ({ marble: [], wall: [], frieze: [], paint: [], tympanum: [], niche: [], gold: [], side: [], roof: [] });
+
+// Merge every list of parts into one mesh per material.
+export function buildMeshes(out, mats, group) {
+  for (const [k, list] of Object.entries(out)) {
+    if (!list.length) continue;
+    const geo = mergeGeometries(list.map((g) => (k === 'marble' || k === 'side' ? worldUV(g, 3) : g)));
+    const m = new THREE.Mesh(geo, mats[k]);
+    m.castShadow = k !== 'niche';
+    m.receiveShadow = true;
+    group.add(m);
+  }
+}
+
+export function addCelsus(scene, manager) {
+  const mats = makeMaterials(manager);
+  const out = newParts();
 
   // ---- steps and podium ----
   for (let k = 0; k < 9; k++) {
@@ -348,14 +368,7 @@ export function addCelsus(scene, manager) {
   const group = new THREE.Group();
   group.name = 'celsus';
   addGate(out, group);
-  for (const [k, list] of Object.entries(out)) {
-    if (!list.length) continue;
-    const geo = mergeGeometries(list.map((g) => (k === 'marble' || k === 'side' ? worldUV(g, 3) : g)));
-    const m = new THREE.Mesh(geo, mats[k]);
-    m.castShadow = k !== 'niche';
-    m.receiveShadow = true;
-    group.add(m);
-  }
+  buildMeshes(out, mats, group);
   interior.receiveShadow = true;
   group.add(interior);
 

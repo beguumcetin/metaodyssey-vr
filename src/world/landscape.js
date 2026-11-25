@@ -41,14 +41,16 @@ export async function addSky(scene, renderer, manager) {
   scene.fog = new THREE.FogExp2(HAZE, 0.00042);
 }
 
-export function addSun(scene) {
+// opts.center / opts.extent: the area that gets sharp shadows (the main monument)
+export function addSun(scene, opts = {}) {
+  const [cx, cy, cz] = opts.center || [0, 0, 8], ext = opts.extent || 55;
   const sun = new THREE.DirectionalLight(0xfff1dc, 1.9);
-  sun.position.copy(SUN_DIR).multiplyScalar(120);
-  sun.target.position.set(0, 0, 8);
+  sun.target.position.set(cx, cy, cz);
+  sun.position.copy(SUN_DIR).multiplyScalar(120 + ext).add(sun.target.position);
   sun.castShadow = true;
   sun.shadow.mapSize.set(2048, 2048);
   const c = sun.shadow.camera;
-  c.left = -55; c.right = 55; c.top = 55; c.bottom = -55; c.near = 10; c.far = 300;
+  c.left = -ext; c.right = ext; c.top = ext; c.bottom = -ext; c.near = 10; c.far = 300 + ext * 2;
   sun.shadow.bias = -0.0004;
   sun.shadow.normalBias = 0.04;
   scene.add(sun, sun.target);
@@ -95,7 +97,8 @@ function ringGeometry() {
   return g;
 }
 
-export function addTerrain(scene, manager) {
+export function addTerrain(scene, manager, opts = {}) {
+  const cliff = new THREE.Color(opts.cliff ?? 0x8c7a62);   // bare rock on steep slopes
   const loader = new THREE.TextureLoader(manager);
   const dirt = loadTex(loader, 'dry_ground_rocks_diff', 0, true);
   const dirtN = loadTex(loader, 'dry_ground_rocks_nor');
@@ -106,9 +109,10 @@ export function addTerrain(scene, manager) {
     cloud: true, key: 'terrain',
     extra: (sh) => {
       sh.uniforms.uGrass = { value: grass };
-      sh.vertexShader = 'attribute float grass;\nvarying float vGrass;\n' + sh.vertexShader.replace(
-        '#include <uv_vertex>', '#include <uv_vertex>\n  vGrass = grass;');
-      sh.fragmentShader = 'uniform sampler2D uGrass;\nvarying float vGrass;\n' + sh.fragmentShader.replace(
+      sh.uniforms.uCliff = { value: cliff };
+      sh.vertexShader = 'attribute float grass;\nvarying float vGrass;\nvarying float vUp;\n' + sh.vertexShader.replace(
+        '#include <uv_vertex>', '#include <uv_vertex>\n  vGrass = grass;\n  vUp = normal.y;');
+      sh.fragmentShader = 'uniform sampler2D uGrass;\nuniform vec3 uCliff;\nvarying float vGrass;\nvarying float vUp;\n' + sh.fragmentShader.replace(
         '#include <map_fragment>',
         `{
           float dist = distance(vWorld, cameraPosition);
@@ -127,6 +131,10 @@ export function addTerrain(scene, manager) {
           float forest = smoothstep(0.32, 0.6, patchy) * smoothstep(35.0, 140.0, length(vWorld.xz));
           vec3 maquis = mix(vec3(0.045, 0.06, 0.025), vec3(0.11, 0.12, 0.06), texture2D(uNoise, vWorld.xz * 0.08).r);
           col.rgb = mix(col.rgb * vec3(0.85, 0.85, 0.8), maquis, forest * 0.85);
+          // steep ground is bare, eroded rock with darker gullies
+          float steep = smoothstep(0.82, 0.62, vUp);
+          float gully = texture2D(uNoise, vec2(vWorld.x * 0.05, vWorld.y * 0.02)).r;
+          col.rgb = mix(col.rgb, uCliff * mix(0.7, 1.15, gully) * (0.85 + 0.3 * near.r), steep);
           diffuseColor *= col;
         }`);
     },
@@ -139,7 +147,7 @@ export function addTerrain(scene, manager) {
 }
 
 // Marble paving: the square in front of the library and the two colonnaded streets.
-export function addPaving(scene, manager) {
+export function addPaving(scene, manager, opts = {}) {
   const loader = new THREE.TextureLoader(manager);
   const map = loadTex(loader, 'marble_01_diff', 0, true);
   const nor = loadTex(loader, 'marble_01_nor');
@@ -167,7 +175,7 @@ export function addPaving(scene, manager) {
 
   const parts = [];
   // square
-  parts.push(gridPatch(PLAZA.minX - 3, PLAZA.maxX + 3, PLAZA.minZ, PLAZA.maxZ + 3, 1.2, (x, z) => {
+  if (opts.square !== false) parts.push(gridPatch(PLAZA.minX - 3, PLAZA.maxX + 3, PLAZA.minZ, PLAZA.maxZ + 3, 1.2, (x, z) => {
     const ex = Math.max(PLAZA.minX - x, x - PLAZA.maxX, 0) / 3;
     const ez = Math.max(z - PLAZA.maxZ, 0) / 3;
     return Math.min(1, Math.max(ex, ez));

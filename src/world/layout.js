@@ -1,5 +1,6 @@
-// Ground plan of the Ephesus scene (metres). The Library of Celsus stands at the origin and faces +z.
-// One height function drives the terrain mesh and everything placed on it.
+// Ground plan of the current site (metres). The main monument stands at the origin and faces +z.
+// One height function drives the terrain mesh and everything placed on it. Each site calls
+// configureLayout() before the world is built; the defaults below are Ephesus.
 import { fbm, smoothstep } from './noise.js';
 
 export const PLAZA = { minX: -26, maxX: 26, minZ: -3, maxZ: 30, y: 0 };
@@ -56,7 +57,23 @@ export function streetLength(street) {
   return l;
 }
 
-function naturalHeight(x, z) {
+let hillsFn = ephesusHills;
+let carveFn = null;
+
+// open ground around monuments where no trees grow: [x, z, radius]
+export const CLEARINGS = [];
+
+export function configureLayout({ plaza, streets, hills, carve, clearings } = {}) {
+  if (clearings) CLEARINGS.splice(0, CLEARINGS.length, ...clearings);
+  if (plaza) Object.assign(PLAZA, plaza);
+  if (streets) STREETS.splice(0, STREETS.length, ...streets);
+  if (hills) hillsFn = hills;
+  carveFn = carve || null;
+}
+
+const naturalHeight = (x, z) => hillsFn(x, z);
+
+export function ephesusHills(x, z) {
   // Hills close behind the library, the valley opening out in front of it.
   const d = Math.hypot(x * 0.9, z < 0 ? z * 1.05 : z * 0.42);
   const hills = smoothstep(70, 360, d) * (30 + 170 * fbm(x * 0.0042 + 3.1, z * 0.0042 - 1.7));
@@ -75,7 +92,8 @@ export function heightAt(x, z) {
     h = streetHeight(s, info.along) - 0.12 + (h - streetHeight(s, info.along)) * w;
   }
   const wp = smoothstep(3, 30, rectDistance(x, z, PLAZA));
-  return -0.12 * (1 - wp) + h * wp;
+  h = -0.12 * (1 - wp) + h * wp;
+  return carveFn ? carveFn(x, z, h) : h;   // e.g. a river bed
 }
 
 // 0 = paved or bare, 1 = fully grassy, used to blend ground textures.

@@ -86,7 +86,7 @@ function along(route, s) {
 }
 
 // Height of the library steps and podium, so people standing there are not buried.
-export function groundY(x, z) {
+export function ephesusGround(x, z) {
   if (Math.abs(x) < 11 && z > -0.6 && z < 5.28) {
     if (z <= 2.4) return 1.53;
     return 1.53 - Math.floor((z - 2.4) / 0.32) * 0.17;
@@ -94,7 +94,19 @@ export function groundY(x, z) {
   return Math.max(heightAt(x, z), 0);
 }
 
-export function addPeople(parent) {
+// Ephesus defaults: groups in conversation [x, z, count] and readers on the library steps.
+const GROUPS = [[-6.5, 3.0, 3], [6, 3.6, 2], [-14, 12, 4], [12, 20, 3], [-4, 24, 3], [16, 9, 2], [-20, 6, 3]];
+const SITTERS = [[-8.6, 1], [-3.8, 2], [3.2, 1], [8.4, 3], [0.9, 4]].map(([x, step]) => ({ x, z: 2.4 + (step + 1) * 0.32 - 0.1, y: 1.53 - step * 0.17 }));
+
+/**
+ * cfg.routes  — [{ spread, points: [[x, z], ...] }] people walk back and forth along
+ * cfg.groups  — [[x, z, count]] people standing in conversation
+ * cfg.sitters — [{ x, z, y }] seats (y = height of the seat surface)
+ * cfg.groundY — (x, z) => height people stand at
+ * cfg.walkers — how many walk
+ */
+export function addPeople(parent, cfg = {}) {
+  const groundY = cfg.groundY || ephesusGround;
   const rand = rng(7);
   const pick = (list) => list[Math.floor(rand() * list.length)];
   const people = [];
@@ -109,14 +121,16 @@ export function addPeople(parent) {
   };
 
   // walkers
-  const routes = ROUTES.map((r) => ({ ...r, ...routeTable(r.points) }));
-  for (let i = 0; i < 46; i++) {
-    const r = rand();
-    const route = routes[r < 0.36 ? 0 : r < 0.7 ? 1 : r < 0.8 ? 2 : r < 0.88 ? 3 : 4];
+  // longer routes get more people
+  const routes = (cfg.routes || ROUTES).map((r) => ({ ...r, ...routeTable(r.points) }));
+  const weight = routes.reduce((a, r) => a + Math.sqrt(r.total), 0);
+  for (let i = 0; i < (cfg.walkers ?? 46); i++) {
+    let r = rand() * weight, route = routes[0];
+    for (const rt of routes) { r -= Math.sqrt(rt.total); if (r <= 0) { route = rt; break; } }
     make({ mode: 'walk', route, s: rand() * route.total, dir: rand() < 0.5 ? 1 : -1, side: (rand() * 2 - 1) * route.spread, speed: 1.0 + rand() * 0.35, pause: 0 });
   }
   // groups in conversation, facing their centre
-  for (const [gx, gz, n] of [[-6.5, 3.0, 3], [6, 3.6, 2], [-14, 12, 4], [12, 20, 3], [-4, 24, 3], [16, 9, 2], [-20, 6, 3]]) {
+  for (const [gx, gz, n] of cfg.groups || GROUPS) {
     for (let k = 0; k < n; k++) {
       const a = (k / n) * Math.PI * 2 + gx;
       const x = gx + Math.cos(a) * 0.7, z = gz + Math.sin(a) * 0.7;
@@ -124,9 +138,7 @@ export function addPeople(parent) {
     }
   }
   // readers sitting on the steps of the library, facing the square
-  for (const [x, step] of [[-8.6, 1], [-3.8, 2], [3.2, 1], [8.4, 3], [0.9, 4]]) {
-    make({ mode: 'sit', x, z: 2.4 + (step + 1) * 0.32 - 0.1, step, face: (rand() - 0.5) * 0.5 });
-  }
+  for (const seat of cfg.sitters || SITTERS) make({ mode: 'sit', ...seat, seatY: seat.y, face: (seat.face ?? 0) + (rand() - 0.5) * 0.5 });
 
   // ---- meshes ----
   const mat = (key) => patchMaterial(new THREE.MeshStandardMaterial({ roughness: 0.82, side: key === 'cloth' ? THREE.DoubleSide : THREE.FrontSide }), { cloud: true, key: 'people-' + key });
@@ -239,7 +251,7 @@ export function addPeople(parent) {
         } else {
           // sitting on a step: thighs forward, shins down to the step below, reading a scroll held in both hands
           x = p.x; z = p.z; yaw = p.face;
-          y = 1.53 - p.step * 0.17 - HIP_Y + 0.07;
+          y = p.seatY - HIP_Y + 0.07;
           P = {
             legL: -1.45, legR: -1.35, kneeL: 1.1, kneeR: 0.95, seat: true, lean: 0.12,
             armL: -1.0 + Math.sin(t * 0.3 + p.phase) * 0.05, armR: -1.0, armOutL: -0.3, armOutR: 0.3,

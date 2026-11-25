@@ -40,7 +40,7 @@ export function createTour({ site, camera, controls, rig, renderer, getLang, isM
   };
   if ('speechSynthesis' in window) speechSynthesis.onvoiceschanged = () => {};
 
-  // Recorded narration (e.g. made with ElevenLabs) lives at assets/voice/<lang>/<01..>.mp3, one file per chapter.
+  // Recorded narration (e.g. made with ElevenLabs) lives at assets/voice/<site>/<lang>/<01..>.mp3, one file per chapter.
   // When a file exists it is played instead of the browser's speech voice.
   const recordings = {};
   const audio = new Audio();
@@ -48,7 +48,7 @@ export function createTour({ site, camera, controls, rig, renderer, getLang, isM
   async function recordingFor(lang, i) {
     const key = `${lang}/${i}`;
     if (!(key in recordings)) {
-      const url = `assets/voice/${lang}/${String(i + 1).padStart(2, '0')}.mp3`;
+      const url = `assets/voice/${site.id}/${lang}/${String(i + 1).padStart(2, '0')}.mp3`;
       recordings[key] = fetch(url, { method: 'HEAD' }).then((r) => (r.ok ? url : null)).catch(() => null);
     }
     return recordings[key];
@@ -164,7 +164,7 @@ export function createTour({ site, camera, controls, rig, renderer, getLang, isM
   function placeRig(ch) {
     const [x, z] = ch.vr;
     const tg = ch.camera.target;
-    rig.position.set(x, Math.max(heightAt(x, z) + 0.1, -0.05), z);
+    rig.position.set(x, heightAt(x, z) + 0.1, z);
     rig.rotation.y = Math.atan2(-(tg[0] - x), -(tg[2] - z));
   }
 

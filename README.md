@@ -29,6 +29,5 @@ The "See it today" button, and the chapters tagged `era: 'today'`, swap in the p
 
 ## Narration audio
 
-Put one MP3 per chapter in `assets/voice/<lang>/01.mp3 … 07.mp3` (e.g. made with ElevenLabs). The tour plays them
-instead of the browser voice and times the subtitles to them. `node tools/voice-script.mjs` writes the texts and
-file names to `assets/voice/SCRIPT.md`.
+Put one MP3 per chapter in `assets/voice/<site>/<lang>/01.mp3 … 07.mp3` (e.g. made with ElevenLabs). The tour plays them
+instead of the browser voice and times the subtitles to them. The texts are the chapter `text` fields in `src/sites/<site>.js`.

@@ -1,7 +1,7 @@
 // Trees (procedural, instanced) and scanned shrubs, grass and rocks from Poly Haven (CC0).
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
-import { heightAt, STREETS, streetInfo, PLAZA } from './layout.js';
+import { heightAt, STREETS, streetInfo, PLAZA, CLEARINGS } from './layout.js';
 import { fbm, rng } from './noise.js';
 import { patchMaterial } from './shaders.js';
 
@@ -99,6 +99,7 @@ function olive(rand) {
 }
 
 function onPaving(x, z, margin) {
+  if (CLEARINGS.some(([cx, cz, r]) => Math.hypot(x - cx, z - cz) < r + margin * 0.5)) return true;
   if (x > PLAZA.minX - margin && x < PLAZA.maxX + margin && z > PLAZA.minZ - margin - 15 && z < PLAZA.maxZ + margin) return true;
   return STREETS.some((s) => streetInfo(s, x, z).dist < s.width / 2 + margin);
 }

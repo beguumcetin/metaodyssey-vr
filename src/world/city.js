@@ -1,7 +1,7 @@
 // The city around the library in AD 120: roofed colonnades (stoas) with shops lining the streets and the square.
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
-import { STREETS, streetPoint, streetLength, streetHeight } from './layout.js';
+import { STREETS, PLAZA, streetPoint, streetLength, streetHeight } from './layout.js';
 import { fullColumn, marble, strip } from './ruins.js';
 import { patchMaterial } from './shaders.js';
 
@@ -10,9 +10,9 @@ const DEPTH = 4.2;      // from the column line to the back wall
 const SPACING = 4.2;
 
 // Each run: a polyline, the side the stoa sits on (+1 left of travel, -1 right), and how far from the centre line.
-function runs() {
+function runs(opts) {
   const list = [];
-  for (const street of STREETS) {
+  for (const street of opts.streets === false ? [] : STREETS) {
     const len = Math.min(streetLength(street), 190);
     for (const side of [-1, 1]) {
       const pts = [];
@@ -20,22 +20,22 @@ function runs() {
         const p = streetPoint(street, s);
         const nx = -p.dir[1] * side, nz = p.dir[0] * side, off = street.width / 2 + 0.9;
         const x = p.x + nx * off, z = p.z + nz * off;
-        if (x > -31 && x < 31 && z > -6 && z < 34) continue;   // the square has its own colonnades
+        if (x > PLAZA.minX - 5 && x < PLAZA.maxX + 5 && z > PLAZA.minZ - 3 && z < PLAZA.maxZ + 4) continue;   // the square has its own colonnades
         pts.push({ x: p.x + nx * off, z: p.z + nz * off, y: streetHeight(street, s) - 0.05, nx, nz });
       }
       list.push(pts);
     }
   }
   // the square: colonnades along its long sides, facing inwards
-  for (const side of [-1, 1]) {
+  if (opts.plaza !== false) for (const side of [-1, 1]) {
     const pts = [];
-    for (let z = 0; z <= 28; z += SPACING) pts.push({ x: side * 26.5, z, y: -0.05, nx: side, nz: 0 });
+    for (let z = PLAZA.minZ + 3; z <= PLAZA.maxZ - 2; z += SPACING) pts.push({ x: side * (side < 0 ? -PLAZA.minX : PLAZA.maxX) + side * 0.5, z, y: -0.05, nx: side, nz: 0 });
     list.push(pts);
   }
   return list;
 }
 
-export function addCity(parent, manager) {
+export function addCity(parent, manager, opts = {}) {
   const mat = marble(manager);
   const wallMat = patchMaterial(new THREE.MeshStandardMaterial({ color: 0xc4a983, roughness: 0.92 }), { cloud: true, key: 'city-wall', extra: (sh) => {
     sh.fragmentShader = sh.fragmentShader.replace('#include <opaque_fragment>', `#include <opaque_fragment>
@@ -51,7 +51,7 @@ export function addCity(parent, manager) {
     new THREE.Vector3(x, y, z), new THREE.Quaternion().setFromEuler(new THREE.Euler(0, yaw, roll, 'YXZ')), new THREE.Vector3(sx, sy, sz));
   const palette = [0xb5523b, 0xd8c9a8, 0x3e5f86, 0xc9a24f, 0x6f7f4e];
   let k = 0;
-  for (const pts of runs()) {
+  for (const pts of runs(opts)) {
     pts.forEach((p, i) => {
       cols.push(m4(p.x, p.y, p.z, 0, 1, 1, 1));
       const q = pts[i + 1];

@@ -4,8 +4,16 @@
 // vr:     where the visitor stands in VR (x, z); they face `camera.target`.
 // era:    'ancient' shows the modelled library of AD 120, 'today' the photogrammetry scan of the ruin.
 
+import { addCelsus } from '../world/celsus.js';
+
 export const ephesus = {
   id: 'ephesus',
+  // the default layout in world/layout.js is Ephesus; the library and gate are modelled in world/celsus.js
+  layout: {},
+  build(scene, manager) {
+    const group = addCelsus(scene, manager);
+    return { group, walkable: [group.userData.walkable] };
+  },
   city: { en: 'Ephesus', tr: 'Efes' },
   place: { en: 'Library of Celsus', tr: 'Celsus Kütüphanesi' },
   model: 'models/celsus.glb',
