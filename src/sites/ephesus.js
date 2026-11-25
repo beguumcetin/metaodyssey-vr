@@ -63,7 +63,7 @@ export const ephesus = {
     },
     {
       title: { en: 'Fallen and Rebuilt', tr: 'Yıkılış ve yeniden doğuş' },
-      era: 'today',
+      era: 'ancient',
       text: {
         en: 'Look up. The façade plays a trick on the eye: the columns in the middle are larger than those at the sides, so the building looks wider than it is. Fire and earthquakes brought it down, and archaeologists raised it again from its own stones between 1970 and 1978.',
         tr: 'Yukarı bak. Cephe gözü yanıltır: ortadaki sütunlar kenardakilerden büyüktür, bu yüzden yapı olduğundan geniş görünür. Yangın ve depremler onu yıktı; arkeologlar 1970 ile 1978 arasında yapıyı kendi taşlarıyla yeniden ayağa kaldırdı.',
@@ -73,7 +73,7 @@ export const ephesus = {
     },
     {
       title: { en: 'Gate of Mazaeus and Mithridates', tr: 'Mazeus ve Mithridates Kapısı' },
-      era: 'today',
+      era: 'ancient',
       text: {
         en: 'To the right stands a triple gateway. Two freed slaves, Mazaeus and Mithridates, dedicated it to Emperor Augustus and his family around 3 BC. It led into the commercial agora, the busy market of the city.',
         tr: 'Sağda üç kemerli bir kapı duruyor. Azat edilmiş iki köle, Mazeus ve Mithridates, onu MÖ 3 civarında İmparator Augustus ve ailesine adadı. Kapı, kentin kalabalık pazar yeri olan ticari agoraya açılıyordu.',
@@ -83,7 +83,7 @@ export const ephesus = {
     },
     {
       title: { en: 'Ephesus Today', tr: 'Bugün Efes' },
-      era: 'today',
+      era: 'ancient',
       text: {
         en: 'Since 2015, Ephesus has been a UNESCO World Heritage Site. Next on our journey: Sardis, the capital of Lydia, and Aigai, which our participants will scan themselves in December.',
         tr: "Efes, 2015'ten beri UNESCO Dünya Mirası Listesi'nde. Yolculuğumuzun sonraki durakları: Lidya'nın başkenti Sardes ve katılımcılarımızın Aralık'ta kendi tarayacağı Aigai.",
