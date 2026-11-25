@@ -187,14 +187,22 @@ function renderUi(state) {
   ui.captionTitle.textContent = state.index >= 0 ? ch.title[lang] : '';
   ui.captionText.textContent = state.ended ? s.end : state.sentence || '';
   ui.play.textContent = state.playing ? '❚❚' : '▶';
+  document.getElementById('next-city').hidden = !(state.ended || state.index === site.chapters.length - 1);
   ui.play.setAttribute('aria-label', state.playing ? 'Pause' : 'Play');
   ui.sound.textContent = ambience.muted ? s.mute : s.sound;
   ui.sound.classList.toggle('off', ambience.muted);
 }
 
-// city tabs on the intro screen; each city is its own page (?site=...)
-document.getElementById('cities').innerHTML = SITES.map((c) =>
-  `<a href="?site=${c.id}${lang === 'tr' ? '&lang=tr' : ''}" class="${c.id === site.id ? 'on' : ''}">${c.city[lang]}</a>`).join('');
+// city tabs on the intro screen and in the header; each city is its own page (?site=...)
+const cityUrl = (id) => `?site=${id}${lang === 'tr' ? '&lang=tr' : ''}`;
+const cityTabs = SITES.map((c) => `<a href="${cityUrl(c.id)}" class="${c.id === site.id ? 'on' : ''}">${c.city[lang]}</a>`).join('');
+document.getElementById('cities').innerHTML = cityTabs;
+document.getElementById('city-switch').innerHTML = cityTabs;
+// on the last chapter, offer the next city
+const nextSite = SITES[(SITES.findIndex((c) => c.id === site.id) + 1) % SITES.length];
+const nextCity = document.getElementById('next-city');
+nextCity.href = cityUrl(nextSite.id);
+nextCity.textContent = `${nextSite.city[lang]} →`;
 
 function applyLang() {
   const s = STRINGS[lang];
@@ -217,6 +225,7 @@ function startAudio() { ambience.start(); }
 function enterTour(play) {
   startAudio();
   ui.intro.classList.add('gone');
+  document.body.classList.add('touring');
   ui.chapters.hidden = ui.caption.hidden = ui.controls.hidden = false;
   if (play) tour.goTo(0, true);
   else tour.explore();

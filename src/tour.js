@@ -60,6 +60,7 @@ export function createTour({ site, camera, controls, rig, renderer, getLang, isM
     const total = sentences.reduce((a, s) => a + s.length, 0);
     const ends = [];
     sentences.reduce((a, s) => { ends.push((a + s.length) / total); return a + s.length; }, 0);
+    narration.recording = true;
     audio.src = url;
     audio.currentTime = 0;
     audio.ontimeupdate = () => {
@@ -113,7 +114,7 @@ export function createTour({ site, camera, controls, rig, renderer, getLang, isM
     emit();
     const words = text.split(/\s+/).length;
     const advance = () => {
-      if (!narration || narration.id !== id) return;
+      if (!narration || narration.id !== id || !state.playing) return;   // paused: stay on this sentence
       clearTimeout(narration.safety);
       narration.i++;
       narration.timer = setTimeout(() => speak(id), 350);
@@ -190,8 +191,16 @@ export function createTour({ site, camera, controls, rig, renderer, getLang, isM
 
   function pause() {
     state.playing = false;
-    stopVoice();
-    narration = null;
+    if (narration && !narration.done) {
+      // keep the narration where it is, so play continues from the same point
+      clearTimeout(narration.timer); clearTimeout(narration.safety);
+      if (narration.recording) audio.pause();
+      else if ('speechSynthesis' in window) speechSynthesis.cancel();
+      narration.paused = true;
+    } else {
+      stopVoice();
+      narration = null;
+    }
     if (!inVr) {
       move = null;
       controls.enabled = true;
@@ -206,7 +215,11 @@ export function createTour({ site, camera, controls, rig, renderer, getLang, isM
       controls.enabled = false;
       flyTo(site.chapters[state.index]);
     }
-    startNarration(state.index, 0.5);
+    if (narration?.paused) {
+      narration.paused = false;
+      if (narration.recording) audio.play().catch(() => speak(narration.id));
+      else speak(narration.id);   // the sentence that was interrupted, then on
+    } else startNarration(state.index, 0.5);
     emit();
   }
 

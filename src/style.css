@@ -90,3 +90,12 @@ button { font: inherit; color: inherit; cursor: pointer; }
   background: rgba(20, 18, 15, .28); backdrop-filter: blur(8px); border: 1px solid rgba(255, 255, 255, .14); }
 .cities a:hover { color: #fff; }
 .cities a.on { color: #1d1a16; background: rgba(255, 250, 240, .9); }
+
+/* city switcher in the header, always reachable during the tour */
+.city-switch { display: flex; gap: 4px; margin-left: 10px; pointer-events: auto; }
+.city-switch a { padding: 4px 10px; border-radius: 999px; font-size: 12px; color: var(--soft); text-decoration: none; border: 1px solid rgba(255, 255, 255, .16); background: rgba(20, 18, 15, .22); backdrop-filter: blur(8px); }
+.city-switch a:hover { color: #fff; }
+.city-switch a.on { color: #1d1a16; background: rgba(255, 250, 240, .88); }
+body:not(.touring) .city-switch { display: none; }   /* the intro has its own big tabs */
+.next-city { text-decoration: none; color: #fff; font-weight: 600; }
+@media (max-width: 760px) { .city-switch { margin-left: 0; } .brand { flex-wrap: wrap; } }
