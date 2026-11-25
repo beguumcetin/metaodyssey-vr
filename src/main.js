@@ -203,6 +203,7 @@ const nextSite = SITES[(SITES.findIndex((c) => c.id === site.id) + 1) % SITES.le
 const nextCity = document.getElementById('next-city');
 nextCity.href = cityUrl(nextSite.id);
 nextCity.textContent = `${nextSite.city[lang]} →`;
+vrPanel.setNextCity(nextSite.city[lang]);
 
 function applyLang() {
   const s = STRINGS[lang];
@@ -307,6 +308,12 @@ function onVrSelect(ctrl) {
     if (action === 'prev') tour.goTo(Math.max(0, tour.state.index - 1), true);
     if (action === 'next') tour.goTo(Math.min(site.chapters.length - 1, tour.state.index + 1), true);
     if (action === 'play') tour.toggle();
+    if (action === 'city') {
+      // leave the headset view, then load the next city (re-enter VR there with the VR button)
+      const go = () => { location.href = cityUrl(nextSite.id); };
+      const session = renderer.xr.getSession();
+      if (session) session.end().then(go, go); else go();
+    }
     return;
   }
   const hit = raycaster.intersectObjects(ground, false)[0];

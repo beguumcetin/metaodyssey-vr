@@ -41,7 +41,7 @@ export const aigai = {
     plaza: { minX: -40, maxX: 40, minZ: -32, maxZ: 8.5 },
     streets: [],
     hills, carve,
-    clearings: [[36, -88, 46], [-26, -42, 22], [-12, -172, 22]],
+    clearings: [[36, -88, 46], [-26, -42, 22], [-12, -172, 22], [4, 66, 24]],   // monuments, and the view up to the market building
   },
   terrain: { cliff: 0x7a6a55 },
   paving: {},
@@ -121,8 +121,8 @@ export const aigai = {
         en: 'The theatre is built into the slope, so the hill itself carries the seats. From the top rows, the audience could look out over the valley while plays and assemblies took place below.',
         tr: 'Tiyatro yamaca oturtulmuş, böylece oturma sıralarını tepenin kendisi taşıyor. Aşağıda oyunlar ve toplantılar sürerken, en üst sıralardaki seyirciler vadiyi seyredebiliyordu.',
       },
-      camera: { position: [52, 27, -64], target: [36, 16, -99] },
-      vr: [36, -76],
+      camera: { position: [62, 24, -80], target: [32, 16, -98] },
+      vr: [44, -80],
     },
     {
       title: { en: 'The Earthquake of AD 17', tr: 'MS 17 depremi' },

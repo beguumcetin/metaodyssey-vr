@@ -35,7 +35,7 @@ export const sardis = {
     streets: [{ name: 'road', width: 7, flat: 999, rise: 0, points: [[0, 34], [-6, 120], [-26, 260]] }],
     hills, carve,
   },
-  terrain: { cliff: 0x9a6f52 },
+  terrain: { cliff: 0x957457 },
   paving: { square: false },
   stoas: false,   // no colonnaded streets here
   sun: { center: [0, 0, -35], extent: 85 },
@@ -49,11 +49,11 @@ export const sardis = {
     routes: [
       { spread: 2.5, points: [[0, 30], [-6, 120], [-20, 220]] },
       { spread: 2, points: [[-26, 3.2], [26, 3.2]] },
-      { spread: 2, points: [[-8, 32], [-40, 30], [-44, -20]] },
+      { spread: 1.5, points: [[-8, 32], [-34, 32], [-36, -30]] },   // down to the bank of the Pactolus
       { spread: 3, points: [[-28, 10], [-28, -100]] },
       { spread: 3, points: [[28, 10], [28, -100]] },
     ],
-    groups: [[-8, 31, 3], [8, 32, 3], [-15, 8, 2], [16, 42, 4], [0, 12, 3], [-38, 22, 2]],
+    groups: [[-8, 31, 3], [8, 32, 3], [-15, 8, 2], [16, 42, 4], [0, 12, 3], [-35, 20, 2]],
     sitters: [{ x: -12, z: 0.75, y: 1.2 }, { x: 9, z: 1.3, y: 0.8 }, { x: 15.5, z: 0.75, y: 1.2 }, { x: -3, z: 1.3, y: 0.8 }],
   },
   credits: [
@@ -105,7 +105,7 @@ export const sardis = {
         en: 'Above the city rises the acropolis, its cliffs carved by rain. In 547 BC the Persian king Cyrus captured it, and Croesus, the richest king of his age, lost his kingdom.',
         tr: 'Kentin üstünde, yağmurun oyduğu yamaçlarıyla akropol yükseliyor. MÖ 547’de Pers kralı Kyros onu ele geçirdi ve çağının en zengin kralı Kroisos krallığını kaybetti.',
       },
-      camera: { position: [34, 6, 36], target: [10, 60, -190] },
+      camera: { position: [44, 24, 66], target: [4, 62, -190] },
       vr: [30, 30],
     },
     {

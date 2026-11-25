@@ -59,7 +59,7 @@ function columnPositions() {
 
 function waterMesh() {
   const pts = [], uvs = [], idx = [];
-  const W = 5.5, n = 220;
+  const W = 4.2, n = 220;
   for (let i = 0; i <= n; i++) {
     const z = -500 + (i / n) * 1100, cx = riverX(z);
     for (const k of [-1, 1]) { pts.push(cx + k * W, -1.45, z); uvs.push(k * 0.5 + 0.5, z / 12); }
@@ -70,15 +70,15 @@ function waterMesh() {
   g.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
   g.setIndex(idx);
   g.computeVertexNormals();
-  const mat = new THREE.MeshStandardMaterial({ color: 0x4f6b62, roughness: 0.12, metalness: 0.1, transparent: true, opacity: 0.92 });
+  const mat = new THREE.MeshStandardMaterial({ color: 0x2f4a4f, roughness: 0.08, metalness: 0.2, envMapIntensity: 1.4 });
   patchMaterial(mat, {
     key: 'river', extra: (sh) => {
       sh.fragmentShader = sh.fragmentShader.replace('#include <opaque_fragment>', `#include <opaque_fragment>
   {
     vec2 p = vWorld.xz * vec2(0.18, 0.05) + vec2(0.0, -uTime * 0.09);
     float r = texture2D(uNoise, p).r * 0.6 + texture2D(uNoise, p * 2.3 + 0.4).r * 0.4;
-    gl_FragColor.rgb += vec3(0.16, 0.15, 0.1) * smoothstep(0.58, 0.8, r);   // glints on the ripples
-    gl_FragColor.rgb *= 0.9 + 0.2 * r;
+    gl_FragColor.rgb += vec3(0.2, 0.19, 0.14) * smoothstep(0.6, 0.8, r);   // glints on the ripples
+    gl_FragColor.rgb *= 0.8 + 0.3 * r;
   }`);
     },
   });

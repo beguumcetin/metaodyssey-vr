@@ -134,7 +134,13 @@ export function addTerrain(scene, manager, opts = {}) {
           // steep ground is bare, eroded rock with darker gullies
           float steep = smoothstep(0.82, 0.62, vUp);
           float gully = texture2D(uNoise, vec2(vWorld.x * 0.05, vWorld.y * 0.02)).r;
-          col.rgb = mix(col.rgb, uCliff * mix(0.7, 1.15, gully) * (0.85 + 0.3 * near.r), steep);
+          // layered rock: soft horizontal strata, dark rain-cut gullies, a little scrub clinging on
+          float strata = 0.5 + 0.5 * sin(vWorld.y * 0.6 + gully * 5.0);
+          float cut = smoothstep(0.35, 0.62, texture2D(uNoise, vec2(vWorld.x * 0.11, vWorld.y * 0.015 + vWorld.z * 0.02)).r);
+          float scrub = smoothstep(0.62, 0.75, texture2D(uNoise, vWorld.xz * 0.05 + 0.2).r) * smoothstep(0.45, 0.75, vUp);
+          vec3 rock = uCliff * mix(0.72, 1.12, gully) * mix(0.86, 1.08, strata) * mix(1.0, 0.68, cut) * (0.85 + 0.3 * near.r);
+          rock = mix(rock, maquis * 1.4, scrub);
+          col.rgb = mix(col.rgb, rock, steep);
           diffuseColor *= col;
         }`);
     },

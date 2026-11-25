@@ -1,4 +1,5 @@
-// A small panel floating in front of the visitor in VR: chapter title, the current subtitle and three buttons.
+// A small panel floating in front of the visitor in VR: chapter title, the current subtitle, three buttons
+// and a pill on the right that takes the visitor to the next city.
 import * as THREE from 'three';
 
 const W = 1024, H = 420;
@@ -8,6 +9,7 @@ const BUTTONS = [
   { id: 'next', x: 712, label: '›' },
 ];
 const BTN_Y = 350, BTN_R = 46;
+const CITY = { x0: 806, x1: 994, y0: 318, y1: 382 };
 
 export function createVrPanel() {
   const canvas = document.createElement('canvas');
@@ -22,7 +24,7 @@ export function createVrPanel() {
   mesh.renderOrder = 20;
   mesh.position.set(0, 0.92, -1.05);
   mesh.rotation.x = -0.42;
-  let last = null, lastLang = 'en', hovered = null;
+  let last = null, lastLang = 'en', hovered = null, nextCity = '';
 
   function wrap(text, x, y, maxW, lineH, maxLines) {
     const words = text.split(' ');
@@ -67,6 +69,15 @@ export function createVrPanel() {
         g.fillText(b.label, b.x, BTN_Y + 20);
       }
     }
+    if (nextCity) {
+      g.fillStyle = hovered === 'city' ? 'rgba(255,255,255,0.95)' : 'rgba(255,255,255,0.16)';
+      g.beginPath();
+      g.roundRect(CITY.x0, CITY.y0, CITY.x1 - CITY.x0, CITY.y1 - CITY.y0, 32);
+      g.fill();
+      g.fillStyle = hovered === 'city' ? '#111' : '#fff';
+      g.font = '500 28px "Instrument Sans", sans-serif';
+      g.fillText(`${nextCity} →`, (CITY.x0 + CITY.x1) / 2, BTN_Y + 10);
+    }
     tex.needsUpdate = true;
   }
 
@@ -74,6 +85,7 @@ export function createVrPanel() {
     const hit = raycaster.intersectObject(mesh, false)[0];
     if (!hit) return null;
     const x = hit.uv.x * W, y = (1 - hit.uv.y) * H;
+    if (nextCity && x > CITY.x0 && x < CITY.x1 && y > CITY.y0 - 10 && y < CITY.y1 + 10) return 'city';
     return BUTTONS.find((b) => Math.hypot(x - b.x, y - BTN_Y) < BTN_R * 1.3)?.id || 'panel';
   }
 
@@ -85,6 +97,7 @@ export function createVrPanel() {
       mesh.userData.titles = chapters.map((c) => c.title);
       draw();
     },
+    setNextCity(name) { nextCity = name; draw(); },
     update(state, lang) { last = state; lastLang = lang; if (mesh.parent) draw(); },
     hover(raycaster) {
       if (!mesh.parent) return false;

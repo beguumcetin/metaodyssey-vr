@@ -141,15 +141,20 @@ function theatre(group, mats) {
   return m;
 }
 
-function stageBuilding(out) {
+// The stage: a low two-storey scene building with a colonnaded front (proskenion) for the actors.
+function stageBuilding(out, cols) {
   const { x, z, r0 } = THEATRE;
   const y = theatreBase();
   const z0 = z + r0 + 1.5;
-  out.side.push(box(x - 14, x + 14, y - 1, y + 6.5, z0 + 2.5, z0 + 7));
-  const doors = [[x - 5.5, x - 3.7, y, y + 3], [x - 1.1, x + 1.1, y, y + 3.6], [x + 3.7, x + 5.5, y, y + 3]];
-  for (const b of wallBlocks(doors, x - 14, x + 14, y - 1, y + 6.5)) out.marble.push(box(b[0], b[1], b[2], b[3], z0 + 2.2, z0 + 2.5));
-  out.marble.push(box(x - 13, x + 13, y - 1, y + 2.6, z0, z0 + 2.2));   // the raised stage
-  out.roof.push(box(x - 14.3, x + 14.3, y + 6.5, y + 7, z0 + 2.2, z0 + 7.3));
+  out.side.push(box(x - 12, x + 12, y - 1, y + 5.2, z0 + 3, z0 + 6.5));
+  const doors = [[x - 5, x - 3.4, y + 2.9, y + 4.7], [x - 1, x + 1, y + 2.9, y + 5.0], [x + 3.4, x + 5, y + 2.9, y + 4.7]];
+  for (const b of wallBlocks(doors, x - 12, x + 12, y - 1, y + 5.2)) out.marble.push(box(b[0], b[1], b[2], b[3], z0 + 2.75, z0 + 3));
+  for (const d of doors) doorFrame(out, ...d);
+  // proskenion: a row of small columns carrying the raised stage floor
+  for (let k = 0; k < 9; k++) cols.push(new THREE.Matrix4().compose(new THREE.Vector3(x - 10 + k * 2.5, y, z0 + 0.3),
+    new THREE.Quaternion(), new THREE.Vector3(0.62, 0.62, 0.62)));
+  out.marble.push(box(x - 11, x + 11, y + 2.75, y + 2.95, z0, z0 + 3), box(x - 11, x + 11, y - 1, y + 2.75, z0 + 2.6, z0 + 3));
+  out.roof.push(box(x - 12.3, x + 12.3, y + 5.2, y + 5.6, z0 + 2.8, z0 + 6.8));
 }
 
 function temple(out, cols) {
@@ -177,7 +182,7 @@ export function addAigai(scene, manager) {
 
   const dark = marketBuilding(out, frieze, cols);
   const hall = bouleuterion(out, frieze, cols);
-  stageBuilding(out);
+  stageBuilding(out, cols);
   temple(out, templeCols);
   const cavea = theatre(group, mats);
   // retaining walls: along the front of the lower terrace, and terraces either side of the market building
